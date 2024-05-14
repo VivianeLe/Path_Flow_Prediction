@@ -347,12 +347,19 @@ def TA_UE(data, n, OD, Q):
     return flows, linkss, model.Status, t2-t1
 
 
-def convert_DemandtoTensor(OD_demand, nodes) :
+"""
+    This function is to convert a dictionary to a tensor, exp OD demand dictionary with n nodes
+    First create a zero matrix with size = node x node (25x25)
+    Then, for each OD pair, we update the matrix with the demand value
+    matrix index = node index - 1 (because node index start from 1)
+    Finally convert matrix to a tensor type float (default)
+"""
+def convert_DictToTensor(OD_demand, nodes) :
     matrix = [ [0 for n in nodes] for n in nodes]
     for k,v in OD_demand.items() :
         o,d = k
-        matrix[o-1][d-1] = v     # matrix_index(node1) = 0 => node1 - 1 
-    return  torch.tensor([matrix], dtype=torch.float32)
+        matrix[o-1][d-1] = v
+    return torch.tensor([matrix], dtype=torch.float32)
 
 def getLinks_embedding(data) :
     links = []
@@ -368,7 +375,7 @@ def getLinks_embedding(data) :
 
 def getOutputEncoding(dim1, dim2, max_num_paths, OD_demand, path_flows) : 
     Full_OD_pairs = get_fullOD_pairs(dim1, dim2)
-    output_size = len(Full_OD_pairs)*max_num_paths
+    output_size = len(Full_OD_pairs)*max_num_paths # 1155
     output_tensor = torch.zeros([1, output_size], dtype=torch.float32)
     i = 0
     for k in OD_demand.keys() :
@@ -381,6 +388,15 @@ def getOutputEncoding(dim1, dim2, max_num_paths, OD_demand, path_flows) :
         i += 1
     return output_tensor
 
+def getOutputTensor(data, od_demand, nodes):
+    # Get index of path used (flow != 0)
+    used_path_index = [i+1 for sublist in data for i, val in enumerate(sublist) if val != 0]
+    # Map OD pair with the path used index list
+    used_path_dict = {key: indices for key, indices in zip(od_demand.keys(), used_path_index)}
+    # Create used path tensor (this is output of the model)
+    output = convert_DictToTensor(used_path_dict, nodes) # shape (1, 25, 25)
+    return output
+
 def create_datapoint(file_name,dim1, dim2, max_num_paths ) :
     file = open(file_name, "rb")
     stat = pickle.load(file)
@@ -388,12 +404,13 @@ def create_datapoint(file_name,dim1, dim2, max_num_paths ) :
     Nodes =  stat['data']['nodes']
     OD_demand = stat['data']['demand']
     
-    T_demand = convert_DemandtoTensor(OD_demand, Nodes)
+    T_demand = convert_DictToTensor(OD_demand, Nodes)
     T_Adj = torch.tensor( [stat['data']['Adjacency_matrix']], dtype=torch.float32 )  # tensor of adjacency matrix
     T_links = getLinks_embedding(stat['data'])
     T_path_flows = getOutputEncoding(dim1, dim2, max_num_paths, OD_demand, stat['path_flow']) # tensor of path flows
 
     # need to come up with a better way
+    # flatten the multi-dimention to 1D tensor
     T_demand = torch.flatten(T_demand, start_dim=1)
     T_Adj = torch.flatten(T_Adj, start_dim=1)
     T_links = torch.flatten(T_links, start_dim=1)
