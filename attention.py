@@ -19,8 +19,7 @@ def attention(q, k, v, mask=None, dropout=None):
     """
 
     # attention score được tính bằng cách nhân q với k
-    d_k = q.size(-1)
-    scores = torch.matmul(q, k.transpose(-2, -1))/math.sqrt(d_k)
+    scores = torch.matmul(q, k.transpose(-2, -1))/math.sqrt(q.size(-1))
 
     if mask is not None:
         mask = mask.unsqueeze(1)
@@ -45,7 +44,7 @@ class MultiHeadAttention(nn.Module):
         self.h = heads
         self.attn = None
 
-        # tạo ra 3 ma trận trọng số là q_linear, k_linear, v_linear như hình trên
+        # tạo ra 3 ma trận trọng số là q_linear, k_linear, v_linear
         self.q_linear = nn.Linear(d_model, d_model)
         self.k_linear = nn.Linear(d_model, d_model)
         self.v_linear = nn.Linear(d_model, d_model)
@@ -93,6 +92,7 @@ class Norm(nn.Module):
         self.eps = eps
 
     def forward(self, x):
+        # Standardize 
         norm = self.alpha * (x - x.mean(dim=-1, keepdim=True)) \
         / (x.std(dim=-1, keepdim=True) + self.eps) + self.bias
         return norm
@@ -137,8 +137,10 @@ class Embedding(nn.Module):
 class EncoderLayer(nn.Module):
     def __init__(self, d_model, heads, dropout=0.1):
         super().__init__()
-        self.norm_1 = Norm(d_model)
-        self.norm_2 = Norm(d_model)
+        # self.norm_1 = Norm(d_model)
+        # self.norm_2 = Norm(d_model)
+        self.norm_1 = nn.LayerNorm(d_model)
+        self.norm_2 = nn.LayerNorm(d_model)
         self.attn = MultiHeadAttention(heads, d_model, dropout=dropout)
         self.ff = FeedForward(d_model, dropout=dropout)
         self.dropout_1 = nn.Dropout(dropout)
@@ -163,15 +165,17 @@ class EncoderLayer(nn.Module):
 def get_clones(module, N):
     return nn.ModuleList([copy.deepcopy(module) for i in range(N)])
 
+# checked, well run
 class Encoder(nn.Module):
-    """1 encoder has many encoder layers
+    """ 1 encoder has many encoder layers
     """
     def __init__(self, input_dim, d_model, N, heads, dropout):
         super().__init__()
         self.N = N
         self.embed = nn.Linear(input_dim, d_model) # Change dimension of raw data to d_model
         self.layers = get_clones(EncoderLayer(d_model, heads, dropout), N)
-        self.norm = Norm(d_model)
+        # self.norm = Norm(d_model)
+        self.norm = nn.LayerNorm(d_model)
 
     def forward(self, src, mask):
         """
@@ -189,13 +193,14 @@ class DecoderLayer(nn.Module):
     def __init__(self, d_model, heads, dropout=0.1):
         super().__init__()
 
-        self.norm_1 = Norm(d_model)
-        self.norm_2 = Norm(d_model)
-        self.norm_3 = Norm(d_model)
+        # self.norm_1 = Norm(d_model)
+        # self.norm_2 = Norm(d_model)
+        # self.norm_3 = Norm(d_model)
+        self.norm_1 = nn.LayerNorm(d_model)
+        self.norm_2 = nn.LayerNorm(d_model)
+        self.norm_3 = nn.LayerNorm(d_model)
 
-        self.dropout_1 = nn.Dropout(dropout)
-        self.dropout_2 = nn.Dropout(dropout)
-        self.dropout_3 = nn.Dropout(dropout)
+        self.dropout = nn.Dropout(dropout)
 
         self.attn_1 = MultiHeadAttention(heads, d_model, dropout=dropout)
         self.attn_2 = MultiHeadAttention(heads, d_model, dropout=dropout)
@@ -210,24 +215,26 @@ class DecoderLayer(nn.Module):
         """
         x2 = self.norm_1(x)
         # multihead attention thứ nhất, chú ý các gia tri ở target
-        x = x + self.dropout_1(self.attn_1(x2, x2, x2, trg_mask))
+        x = x + self.dropout(self.attn_1(x2, x2, x2, trg_mask))
         x2 = self.norm_2(x)
         # masked multihead attention thứ 2. k, v là giá trị output của mô hình encoder
-        x = x + self.dropout_2(self.attn_2(x2, e_outputs, e_outputs, src_mask))
+        x = x + self.dropout(self.attn_2(x2, e_outputs, e_outputs, src_mask))
         x2 = self.norm_3(x)
-        x = x + self.dropout_3(self.ff(x2))
+        x = x + self.dropout(self.ff(x2))
         return x
+
 
 class Decoder(nn.Module):
     """ 1 decoder has many decoder layers
+    N: number of decoder layer
     """
     def __init__(self, output_dim, d_model, N, heads, dropout):
         super().__init__()
         self.N = N
-        self.embed = nn.Linear(output_dim, d_model) # Change dimension of raw data to d_model
-        # self.pe = PositionalEncoder(d_model, dropout=dropout)
+        self.embed = nn.Linear(output_dim, d_model) # Change dimension of raw data to d_model (change from 3 to 512)
         self.layers = get_clones(DecoderLayer(d_model, heads, dropout), N)
-        self.norm = Norm(d_model)
+        # self.norm = Norm(d_model)
+        self.norm = nn.LayerNorm(d_model)
     def forward(self, trg, e_outputs, src_mask, trg_mask):
         """
         trg: batch_size x seq_length
@@ -243,20 +250,18 @@ class Decoder(nn.Module):
         return self.norm(x)
 
 class Transformer(nn.Module):
-    """ Cuối cùng ghép chúng lại với nhau để được mô hình transformer hoàn chỉnh
-    """
-    def __init__(self, src_vocab, trg_vocab, d_model, N, heads, dropout):
+    def __init__(self, input_dim, output_dim, d_model, N, heads, dropout):
         super().__init__()
-        self.encoder = Encoder(src_vocab, d_model, N, heads, dropout)
-        self.decoder = Decoder(trg_vocab, d_model, N, heads, dropout)
-        self.out = nn.Linear(d_model, trg_vocab)
+        self.encoder = Encoder(input_dim, d_model, N, heads, dropout)
+        self.decoder = Decoder(output_dim, d_model, N, heads, dropout)
+        self.out = nn.Linear(d_model, output_dim)
     def forward(self, src, trg, src_mask, trg_mask):
         """
         src: batch_size x seq_length
         trg: batch_size x seq_length
         src_mask: batch_size x 1 x seq_length
         trg_mask batch_size x 1 x seq_length
-        output: batch_size x seq_length x vocab_size
+        output: batch_size x seq_length x output_dim (1 x 625x3)
         """
         e_outputs = self.encoder(src, src_mask)
 
