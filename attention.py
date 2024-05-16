@@ -7,61 +7,36 @@ import os
 import math
 import copy
 
-def expand_mask(mask):
-    assert mask.ndim >= 2, "Mask must be at least 2-dimensional with seq_length x seq_length"
-    if mask.ndim == 3:
-        mask = mask.unsqueeze(1)
-    while mask.ndim < 4:
-        mask = mask.unsqueeze(0)
-    return mask
-
-def expand_mask(mask):
-    for i in range(mask[0]):
-        # Mở rộng mask trên chiều thứ tư
-        mask[i] = mask[i].expand(mask[2], mask[2])
-
 def scaled_dot_product(q, k, v, mask=None, dropout=None):
     d_k = q.size()[-1]
     attn_logits = torch.matmul(q, k.transpose(-2, -1))
     attn_logits = attn_logits / math.sqrt(d_k)
-    if mask is not None:
-        # mask = expand_mask(mask)
-        attn_logits = attn_logits.masked_fill(mask == 0, -9e15)
-    attention = F.softmax(attn_logits, dim=-1)
+    # if mask is not None:
+    #     mask = expand_mask(mask)
+    #     attn_logits = attn_logits.masked_fill(mask == 0, -9e15)
+    att = F.softmax(attn_logits, dim=-1)
     if dropout is not None:
         scores = dropout(scores)
-    values = torch.matmul(attention, v)
-    return values, attention
+    values = torch.matmul(att, v)
+    return values, att
 
-def attention(q, k, v, mask=None, dropout=None):
+def attention(q, k, v, dropout=None):
     """
     q: batch_size x head x seq_length x d_model
     k: batch_size x head x seq_length x d_model
     v: batch_size x head x seq_length x d_model
-    mask: batch_size x 1 x 1 x seq_length
     output: batch_size x head x seq_length x d_model
     score: batch_size x head x seq_length x seq_length
     """
-
     # attention score được tính bằng cách nhân q với k
     d_k = q.size(-1)
     scores = torch.matmul(q, k.transpose(-2, -1))/math.sqrt(d_k) #batch_size x seq_length x seq_length
-
-    if mask is not None:
-        # mask = mask.unsqueeze(1)
-        print("new mask shape: ", mask.shape)
-        scores = scores.masked_fill(mask==0, -1e9)
-    # xong rồi thì chuẩn hóa bằng softmax
     scores = F.softmax(scores, dim=-1)
 
     if dropout is not None:
         scores = dropout(scores)
-
-    print("Score shape: ", scores.shape)
-    print("V shape: ", v.shape)
-    
     output = torch.matmul(scores, v)
-    print("attention output shape: ", output.shape)
+    print("Finish calculate attention score")
     return output, scores
 
 
@@ -83,37 +58,31 @@ class MultiHeadAttention(nn.Module):
         self.dropout = nn.Dropout(dropout)
         self.out = nn.Linear(d_model, d_model)
 
-    def forward(self, q, k, v, mask=None):
+    def forward(self, q, k, v):
         """
         q: batch_size x seq_length x d_model
         k: batch_size x seq_length x d_model
         v: batch_size x seq_length x d_model
-        mask: batch_size x 1 x seq_length
         output: batch_size x seq_length x d_model
         """
         bs = q.size(0)
-        # nhân ma trận trọng số q_linear, k_linear, v_linear với dữ liệu đầu vào q, k, v
         # size: batch_size x 1 x head x d_k
         q = self.q_linear(q).view(bs, -1, self.h, self.d_k)
         k = self.k_linear(k).view(bs, -1, self.h, self.d_k)
         v = self.v_linear(v).view(bs, -1, self.h, self.d_k)
 
-        print("q, k, v before transpose: ", q.shape, k.shape, v.shape)
-
         q = q.transpose(1, 2)
         k = k.transpose(1, 2)
         v = v.transpose(1, 2)
         # size: batch_size x head x 1 x d_k
-        print("q, k, v after transpose: ", q.shape, k.shape, v.shape)
         # tính attention score
-        scores, self.attn = attention(q, k, v, mask, self.dropout)
+        scores, self.attn = attention(q, k, v, self.dropout)
 
         concat = scores.transpose(1, 2).contiguous().view(bs, -1, self.d_model)
-
         output = self.out(concat)
+        print("Finish Multihead attention")
         return output
     
-
 class FeedForward(nn.Module):
     """ Trong kiến trúc của chúng ta có tầng linear
     """
@@ -130,55 +99,31 @@ class FeedForward(nn.Module):
         x = self.linear_2(x)
         return x
 
-def generate_mask(src, tgt):
-    src_mask = (src != 0).unsqueeze(1).unsqueeze(2)
-    tgt_mask = (tgt != 0).unsqueeze(1).unsqueeze(3)
-    seq_length = tgt.size(1)
-    nopeak_mask = (1 - torch.triu(torch.ones(1, seq_length, seq_length), diagonal=1)).bool()
-    tgt_mask = tgt_mask & nopeak_mask
-    return src_mask, tgt_mask
-
-class Embedding(nn.Module):
-    def __init__(self, data_dim, d_model):
-        super().__init__()
-        self.data_dim = data_dim
-        self.d_model = d_model
-
-        self.ln = nn.Linear(data_dim, d_model)
-    
-    def forward(self, x):
-        x1 = x.unsqueeze(0) # convert to 3D tensor
-        return self.ln(x1)
-
 class EncoderLayer(nn.Module):
     def __init__(self, d_model, heads, dropout=0.1):
         super().__init__()
-        self.norm_1 = nn.LayerNorm(d_model)
+        # self.norm_1 = nn.LayerNorm(d_model)
         self.norm_2 = nn.LayerNorm(d_model)
         self.attn = MultiHeadAttention(heads, d_model, dropout=dropout)
         self.ff = FeedForward(d_model, dropout=dropout)
         self.dropout_1 = nn.Dropout(dropout)
         self.dropout_2 = nn.Dropout(dropout)
 
-    def forward(self, x, mask):
+    def forward(self, x):
         """
         x: batch_size x seq_length x d_model
         mask: batch_size x 1 x seq_length
         output: batch_size x seq_length x d_model
         """
-
-        x2 = self.norm_1(x) # neu da normalize tu truoc thi ko can norm nua
-        # residual connection
-        x = x + self.dropout_1(self.attn(x2,x2,x2,mask))
+        # x2 = self.norm_1(x) # neu da normalize tu truoc thi ko can norm nua
+        x2 = x
+        x = x + self.dropout_1(self.attn(x2,x2,x2))
         x2 = self.norm_2(x)
-        # residual connection
         x = x + self.dropout_2(self.ff(x2))
         return x
 
 # checked, well run
 class Encoder(nn.Module):
-    """ 1 encoder has many encoder layers
-    """
     def __init__(self, input_dim, d_model, N, heads, dropout):
         super().__init__()
         self.N = N
@@ -186,18 +131,17 @@ class Encoder(nn.Module):
         self.layers = nn.ModuleList([EncoderLayer(d_model, heads, dropout) for _ in range(N)])
         self.norm = nn.LayerNorm(d_model)
 
-    def forward(self, src, mask):
+    def forward(self, src):
         """
         src: batch_size x seq_length
-        mask: batch_size x 1 x seq_length
         output: batch_size x seq_length x d_model
         """
         x = self.embed(src)
-        print("1st Encoder Linear: ", x.shape)
-        # Feed data to several encoder layers
+
         for i in range(self.N):
-            x = self.layers[i](x, mask)
-        print("2nd after Encoder layer : ", x.shape)
+            x = self.layers[i](x)
+        
+        print("Finish encoder")
         return self.norm(x)
 
 class DecoderLayer(nn.Module):
@@ -214,20 +158,17 @@ class DecoderLayer(nn.Module):
         self.attn_2 = MultiHeadAttention(heads, d_model, dropout=dropout)
         self.ff = FeedForward(d_model, dropout=dropout)
 
-    def forward(self, x, e_outputs, src_mask):
+    def forward(self, x, e_outputs):
         """
         x: batch_size x seq_length x d_model 
         e_outputs: batch_size x seq_length x d_model (encoder output)
-        src_mask: batch_size x 1 x seq_length
-        trg_mask: batch_size x 1 x seq_length
         """
         x2 = self.norm_1(x)
-        # multihead attention thứ nhất, chú ý các gia tri ở target
-        # x = x + self.dropout(self.attn_1(x2, x2, x2, trg_mask))
+
         x = x + self.dropout(self.attn_1(x2, x2, x2))
         x2 = self.norm_2(x)
-        # masked multihead attention thứ 2. k, v là giá trị output của mô hình encoder
-        x = x + self.dropout(self.attn_2(x2, e_outputs, e_outputs, src_mask))
+
+        x = x + self.dropout(self.attn_2(x2, e_outputs, e_outputs))
         x2 = self.norm_3(x)
         x = x + self.dropout(self.ff(x2))
         return x
@@ -240,21 +181,19 @@ class Decoder(nn.Module):
     def __init__(self, output_dim, d_model, N, heads, dropout):
         super().__init__()
         self.N = N
-        self.embed = nn.Linear(output_dim, d_model) # Change dimension of raw data to d_model (change from 3 to 512)
+        self.embed = nn.Linear(output_dim, d_model)
         self.layers = nn.ModuleList([DecoderLayer(d_model, heads, dropout) for _ in range(N)])
         self.norm = nn.LayerNorm(d_model)
-    def forward(self, trg, e_outputs, src_mask):
+    def forward(self, trg, e_outputs):
         """
         trg: batch_size x seq_length
         e_outputs: batch_size x seq_length x d_model
-        src_mask: batch_size x 1 x seq_length
-        trg_mask: batch_size x 1 x seq_length
         output: batch_size x seq_length x d_model
         """
         x = self.embed(trg)
         for i in range(self.N):
             # x = self.layers[i](x, e_outputs, src_mask, trg_mask)
-            x = self.layers[i](x, e_outputs, src_mask)
+            x = self.layers[i](x, e_outputs)
         return self.norm(x)
 
 class Transformer(nn.Module):
@@ -263,17 +202,14 @@ class Transformer(nn.Module):
         self.encoder = Encoder(input_dim, d_model, N, heads, dropout)
         self.decoder = Decoder(output_dim, d_model, N, heads, dropout)
         self.out = nn.Linear(d_model, output_dim)
-    def forward(self, src, trg, src_mask, trg_mask):
+    def forward(self, src, trg):
         """
         src: batch_size x seq_length
         trg: batch_size x seq_length
-        src_mask: batch_size x 1 x seq_length
-        trg_mask batch_size x 1 x seq_length
         output: batch_size x seq_length x output_dim (1 x 625x3)
         """
-        e_outputs = self.encoder(src, src_mask)
-
-        d_output = self.decoder(trg, e_outputs, src_mask, trg_mask)
+        e_outputs = self.encoder(src)
+        d_output = self.decoder(trg, e_outputs)
         output = self.out(d_output)
         return output
 

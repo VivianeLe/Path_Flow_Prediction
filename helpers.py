@@ -7,8 +7,10 @@ import torch.nn as nn
 from tqdm.notebook import tqdm
 import torch.utils.data as data
 import torch.nn.functional as F
+from numba import njit
 
 # Create dictionary of all unique paths
+
 def path_encoder():
     path_sample = []
     for i in range(10):
@@ -29,11 +31,17 @@ def path_encoder():
 
 # Normalize tensor by Min-max scaling
 def normalize_tensor(tensor):
-    # reshaped_tensor = tensor.view(-1, tensor.size(-1))
     min_values = torch.min(tensor, dim=0)[0]
     max_values = torch.max(tensor, dim=0)[0]
+    
     scaled_tensor = (tensor - min_values) / (max_values - min_values)
+
+    for i in range(tensor.shape[1]):  # Vòng lặp qua từng chiều
+        if min_values[i] == max_values[i]:
+            scaled_tensor[:, i] = 1 
+            
     return scaled_tensor
+
 
 def get_Link_Path_adj(net, path_encoded):
     link_path = torch.zeros(net.shape[0],len(path_encoded))
@@ -45,7 +53,7 @@ def get_Link_Path_adj(net, path_encoded):
 
 def get_graphTensor(network):
     # convert data to numpy
-    data = network[['link_id', 'init_node', 'term_node', 'capacity', 'length', 'free_flow_time']].to_numpy()
+    data = network[['init_node', 'term_node', 'capacity', 'length', 'free_flow_time']].to_numpy()
     # create network tensor 3D
     data = torch.tensor(data)
     return data
@@ -72,6 +80,7 @@ def preprocessTensor(OD_dict, nodes):
     # tensor = tensor.unsqueeze(0) # shape 1x625x1
     return tensor
 
+
 def preprocess_path(path_links, node, path_encoded):
     new_path_links = {k: [tuple(path) for path in v] for k, v in path_links.items()}
     
@@ -86,6 +95,7 @@ def preprocess_path(path_links, node, path_encoded):
     p3 = preprocessTensor(p3, node)
     stack = torch.stack([p1, p2, p3], dim=1).squeeze(-1)
     return stack
+
 
 def preprocess_flow(demand, path_flows, nodes):
     flows = {k: v for k, v in zip(demand.keys(), path_flows)}
@@ -107,12 +117,12 @@ def get_X(Graph, Link_Path_adj, OD_demand, Path_tensor):
     max_size = max([x.size(0) for x in X])
 
     # Thêm padding cho mỗi ma trận để chúng có kích thước giống nhau
-    Graph = F.pad(Graph, (0,0,0, max_size-Graph.size(0)))
-    OD_demand = F.pad(OD_demand, (0,0,0, max_size-OD_demand.size(0)))
-    Path_tensor = F.pad(Path_tensor, (0,0,0, max_size-Path_tensor.size(0)))
-    Link_Path_adj = F.pad(Link_Path_adj,(0,0,0, max_size-Link_Path_adj.size(0)))
+    Graph = F.pad(Graph, (0,0,0, max_size-Graph.size(0)), value=-1e9)
+    OD_demand = F.pad(OD_demand, (0,0,0, max_size-OD_demand.size(0)), value=-1e9)
+    Path_tensor = F.pad(Path_tensor, (0,0,0, max_size-Path_tensor.size(0)), value=-1e9)
+    Link_Path_adj = F.pad(Link_Path_adj,(0,0,0, max_size-Link_Path_adj.size(0)), value=-1e9)
 
-    X = torch.cat([Graph.float(), OD_demand.float(), Path_tensor.float(), Link_Path_adj.float()], dim=1) # 625x1165
+    X = torch.cat([Graph.float(), OD_demand.float(), Path_tensor.float(), Link_Path_adj.float()], dim=1) # 625x1164
     return X
 
 def generate_xy(file_name, path_encoded):
@@ -130,8 +140,8 @@ def generate_xy(file_name, path_encoded):
     Link_Path_adj = get_Link_Path_adj(net, path_encoded)
     Graph = normalize_tensor(get_graphTensor(net))
     OD_demand = normalize_tensor(preprocessTensor(demand, nodes))
-    Path_tensor = preprocess_path(path_links, nodes, path_encoded)
-    X = get_X(Graph, Link_Path_adj,OD_demand,Path_tensor) # 625 x 1165
+    Path_tensor = normalize_tensor(preprocess_path(path_links, nodes, path_encoded))
+    X = get_X(Graph, Link_Path_adj,OD_demand,Path_tensor) # 625 x 1164
 
     # Get Y
     Flow_tensor = preprocess_flow(demand, path_flows, nodes) # 625x3
