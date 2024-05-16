@@ -5,7 +5,7 @@ import torch.nn.functional as F
 import numpy as np
 import os
 import math
-import copy
+from torch.utils.checkpoint import checkpoint
 
 def attention(q, k, v, dropout=None):
     d_k = q.size(-1)
@@ -15,7 +15,6 @@ def attention(q, k, v, dropout=None):
     if dropout is not None:
         scores = dropout(scores)
     output = torch.matmul(scores, v)
-    print("Finish calculate attention score")
     return output, scores
 
 class MultiHeadAttention(nn.Module):
@@ -37,12 +36,6 @@ class MultiHeadAttention(nn.Module):
         self.out = nn.Linear(d_model, d_model)
 
     def forward(self, q, k, v):
-        """
-        q: batch_size x seq_length x d_model
-        k: batch_size x seq_length x d_model
-        v: batch_size x seq_length x d_model
-        output: batch_size x seq_length x d_model
-        """
         bs = q.size(0)
         # size: batch_size x 1 x head x d_k
         q = self.q_linear(q).view(bs, -1, self.h, self.d_k)
@@ -58,11 +51,10 @@ class MultiHeadAttention(nn.Module):
 
         concat = scores.transpose(1, 2).contiguous().view(bs, -1, self.d_model)
         output = self.out(concat)
-        print("Finish Multihead attention")
         return output
     
 class FeedForward(nn.Module):
-    def __init__(self, d_model, d_ff=2048, dropout = 0.1):
+    def __init__(self, d_model, d_ff=1024, dropout = 0.1):
         super().__init__()
 
         # We set d_ff as a default to 2048
@@ -105,9 +97,7 @@ class Encoder(nn.Module):
     def forward(self, src):
         x = self.embed(src)
         for i in range(self.N):
-            x = self.layers[i](x)
-        
-        print("Finish encoder")
+            x = checkpoint(self.layers[i](x))
         return self.norm(x)
 
 class DecoderLayer(nn.Module):
@@ -145,7 +135,7 @@ class Decoder(nn.Module):
         x = self.embed(trg)
         for i in range(self.N):
             # x = self.layers[i](x, e_outputs, src_mask, trg_mask)
-            x = self.layers[i](x, e_outputs)
+            x = checkpoint(self.layers[i](x, e_outputs))
         return self.norm(x)
 
 class Transformer(nn.Module):
