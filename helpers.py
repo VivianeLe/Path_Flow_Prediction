@@ -113,14 +113,6 @@ def standardize(tensor):
     standardized_tensor = (tensor - mean) / std
     return standardized_tensor
 
-
-# def apply_pca(tensor, n_components):
-#     pca = PCA(n_components=n_components)
-#     tensor_pca = pca.fit_transform(tensor.cpu().numpy())
-#     tensor_pca = torch.from_numpy(tensor_pca).to(tensor.device)    
-#     return tensor_pca
-
-
 def generate_xy(file_name, path_encoded, standard_norm):
     file = open(file_name, "rb")
     stat = pickle.load(file)
