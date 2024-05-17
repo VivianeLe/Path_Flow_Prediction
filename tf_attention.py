@@ -43,9 +43,10 @@ class Encoder(tfl.Layer):
 class DecoderLayer(tfl.Layer):
     def __init__(self, output_dim, d_model, heads, dropout):
         super().__init__()
-        self.mha1 = tfl.MultiHeadAttention(num_heads=heads, key_dim=d_model // heads, attention_axes=(1,))
+        # Dimension 1 takes more time to calculate than dim 2
+        self.mha1 = tfl.MultiHeadAttention(num_heads=heads, key_dim=d_model // heads, attention_axes=(2))
         self.layer_norm1 = tfl.LayerNormalization()
-        self.mha2 = tfl.MultiHeadAttention(num_heads=heads, key_dim=d_model // heads, attention_axes=(1,))
+        self.mha2 = tfl.MultiHeadAttention(num_heads=heads, key_dim=d_model // heads, attention_axes=(2))
         self.layer_norm2 = tfl.LayerNormalization()
         self.dense1 = tfl.Dense(d_model, activation='relu')
         self.dense2 = tfl.Dense(output_dim)
