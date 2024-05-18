@@ -3,6 +3,7 @@ import numpy as np
 import pickle
 import tensorflow as tf
 from tqdm.notebook import tqdm
+from numba import jit
 
 # Create dictionary of all unique paths
 def path_encoder():
@@ -35,16 +36,37 @@ def get_Link_Path_adj(net, path_encoded):
             link_path = link_path.write(link, link_path.read(link).scatter(tf.IndexedSlices(1.0, [index-1])))
     return link_path.stack()
 
-def get_graphTensor(network):
-    data_columns = ['init_node', 'term_node', 'capacity', 'length', 'free_flow_time']
-    data = tf.convert_to_tensor(network[data_columns].values, dtype=tf.float32)
-    return data
+def get_graphTensor(network, nodes):
+    cap = np.array(network[['init_node', 'term_node', 'capacity']].apply(lambda row: ((row['init_node'], row['term_node']), row['capacity']), axis=1).tolist(), dtype=object)
+    length = np.array(network[['init_node', 'term_node', 'length']].apply(lambda row: ((row['init_node'], row['term_node']), row['length']), axis=1).tolist(), dtype=object)
+    fft = np.array(network[['init_node', 'term_node', 'free_flow_time']].apply(lambda row: ((row['init_node'], row['term_node']), row['free_flow_time']), axis=1).tolist(), dtype=object)
+
+    Cap = create_single_tensor(create_matrix(cap, nodes))
+    Length = create_single_tensor(create_matrix(length, nodes))
+    FFT = create_single_tensor(create_matrix(fft, nodes))
+    tensor = tf.concat([tf.cast(Cap, tf.float32), tf.cast(Length, tf.float32), tf.cast(FFT, tf.float32)], axis=1)
+    return tensor
 
 def convert_DictToTensor(OD_demand, nodes):
     matrix = np.zeros((len(nodes), len(nodes)))
     for (o, d), v in OD_demand.items():
         matrix[o-1][d-1] = v
     return tf.convert_to_tensor([matrix], dtype=tf.float32)
+
+@jit
+def create_matrix(data, nodes):
+        # data is an array, nodes is a set
+        matrix = np.zeros((len(nodes), len(nodes)))
+        for (o, d), v in data:
+                matrix[o-1][d-1] = v
+        return matrix
+
+def create_single_tensor(matrix):
+    tensor = tf.convert_to_tensor([matrix], dtype=tf.float32)
+    tensor = tf.squeeze(tensor, axis=0)
+    tensor = tf.reshape(tensor, [-1]) # Flatten the matrix to a 1D tensor
+    tensor = tf.expand_dims(tensor, axis=1) # TensorShape([625, 1])
+    return tensor
 
 # Transform a dictionary to a tensor, flatten, transpose, and unsqueeze to get a 3D tensor
 def preprocessTensor(OD_dict, nodes):
