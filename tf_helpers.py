@@ -36,84 +36,65 @@ def get_Link_Path_adj(net, path_encoded):
             link_path = link_path.write(link, link_path.read(link).scatter(tf.IndexedSlices(1.0, [index-1])))
     return link_path.stack()
 
-def get_graphTensor(network, nodes):
-    cap = np.array(network[['init_node', 'term_node', 'capacity']].apply(lambda row: ((row['init_node'], row['term_node']), row['capacity']), axis=1).tolist(), dtype=object)
-    length = np.array(network[['init_node', 'term_node', 'length']].apply(lambda row: ((row['init_node'], row['term_node']), row['length']), axis=1).tolist(), dtype=object)
-    fft = np.array(network[['init_node', 'term_node', 'free_flow_time']].apply(lambda row: ((row['init_node'], row['term_node']), row['free_flow_time']), axis=1).tolist(), dtype=object)
-
-    Cap = create_single_tensor(create_matrix(cap, nodes))
-    Length = create_single_tensor(create_matrix(length, nodes))
-    FFT = create_single_tensor(create_matrix(fft, nodes))
-    tensor = tf.concat([tf.cast(Cap, tf.float32), tf.cast(Length, tf.float32), tf.cast(FFT, tf.float32)], axis=1)
-    return tensor
-
-def convert_DictToTensor(OD_demand, nodes):
-    matrix = np.zeros((len(nodes), len(nodes)))
-    for (o, d), v in OD_demand.items():
-        matrix[o-1][d-1] = v
-    return tf.convert_to_tensor([matrix], dtype=tf.float32)
-
-@jit
 def create_matrix(data, nodes):
-        # data is an array, nodes is a set
-        matrix = np.zeros((len(nodes), len(nodes)))
-        for (o, d), v in data:
-                matrix[o-1][d-1] = v
-        return matrix
+    # data is an array, nodes is a set
+    matrix = np.zeros((len(nodes), len(nodes)))
+    for (o, d), v in data:
+        o = int(o)
+        d = int(d)
+        matrix[o-1][d-1] = v
+    return matrix
 
-def create_single_tensor(matrix):
+def create_single_tensor(data, nodes):
+    matrix = create_matrix(data, nodes)
     tensor = tf.convert_to_tensor([matrix], dtype=tf.float32)
     tensor = tf.squeeze(tensor, axis=0)
     tensor = tf.reshape(tensor, [-1]) # Flatten the matrix to a 1D tensor
     tensor = tf.expand_dims(tensor, axis=1) # TensorShape([625, 1])
     return tensor
 
-# Transform a dictionary to a tensor, flatten, transpose, and unsqueeze to get a 3D tensor
-def preprocessTensor(OD_dict, nodes):
-    tensor = convert_DictToTensor(OD_dict, nodes)  # size (1, 25, 25)
-    tensor = tf.reshape(tensor, (1, -1))  # shape 1x625
-    tensor = tf.transpose(tensor)  # shape 625x1
+def get_graphTensor(network, nodes):
+    cap = np.array(network[['init_node', 'term_node', 'capacity']].apply(lambda row: ((row['init_node'], row['term_node']), row['capacity']), axis=1).tolist(), dtype=object)
+    length = np.array(network[['init_node', 'term_node', 'length']].apply(lambda row: ((row['init_node'], row['term_node']), row['length']), axis=1).tolist(), dtype=object)
+    fft = np.array(network[['init_node', 'term_node', 'free_flow_time']].apply(lambda row: ((row['init_node'], row['term_node']), row['free_flow_time']), axis=1).tolist(), dtype=object)
+
+    Cap = create_single_tensor(cap, nodes)
+    Length = create_single_tensor(length, nodes)
+    Fft = create_single_tensor(fft, nodes)
+    tensor = tf.concat([tf.cast(Cap, tf.float32), tf.cast(Length, tf.float32), tf.cast(Fft, tf.float32)], axis=1)
     return tensor
 
-def preprocess_path(path_links, node, path_encoded):
-    new_path_links = {k: [tuple(path) for path in v] for k, v in path_links.items()}
-    
-    # Encode paths
-    p1, p2, p3 = {}, {}, {}
-    for k, v in new_path_links.items():
-        p1[k], p2[k], p3[k] = [path_encoded[path] for path in v]
+def get_demandTensor(demand, nodes):
+    tensor = np.array([(key, value) for key, value in demand.items()], dtype=object)
+    tensor = create_single_tensor(tensor, nodes)
+    return tensor
 
-    # Extract 3 path tensors
-    p1 = preprocessTensor(p1, node)  # 625x1
-    p2 = preprocessTensor(p2, node)
-    p3 = preprocessTensor(p3, node)
-    stack = tf.stack([p1, p2, p3], axis=1)
-    stack = tf.squeeze(stack, -1)
-    return stack
+def get_pathTensor(path_links, nodes, path_encoded):
+    paths = np.array([(key, [tuple(path) for path in value]) for key, value in path_links.items()], dtype=object)
+    p1, p2, p3 = [], [], []
+    for od, [path1, path2, path3] in paths:
+        p1.append((od, path_encoded[path1]))
+        p2.append((od, path_encoded[path2]))
+        p3.append((od, path_encoded[path3]))
 
-def preprocess_flow(demand, path_flows, nodes):
-    flows = {k: v for k, v in zip(demand.keys(), path_flows)}
-    f1, f2, f3 = {}, {}, {}
-    for k, v in flows.items():
-        f1[k], f2[k], f3[k] = v
+    p1 = create_single_tensor(p1, nodes)
+    p2 = create_single_tensor(p2, nodes)
+    p3 = create_single_tensor(p3, nodes)
+    tensor = tf.concat([tf.cast(p1, tf.float32), tf.cast(p2, tf.float32), tf.cast(p3, tf.float32)], axis=1)
+    return tensor
 
-    # Extract 3 flow tensors
-    f1 = preprocessTensor(f1, nodes)
-    f2 = preprocessTensor(f2, nodes)
-    f3 = preprocessTensor(f3, nodes)
-    stack = tf.stack([f1, f2, f3], axis=1)
-    return stack
-
-def get_X(Graph, OD_demand, Path_tensor):
-    X = [Graph, OD_demand, Path_tensor]
-    max_size = max([x.shape[0] for x in X])
-
-    Graph = tf.pad(Graph, paddings=[[0, max_size - Graph.shape[0]], [0, 0]])
-    OD_demand = tf.pad(OD_demand, paddings=[[0, max_size - OD_demand.shape[0]], [0, 0]])
-    Path_tensor = tf.pad(Path_tensor, paddings=[[0, max_size - Path_tensor.shape[0]], [0, 0]])
-
-    X = tf.concat([tf.cast(Graph, tf.float32), tf.cast(OD_demand, tf.float32), tf.cast(Path_tensor, tf.float32)], axis=1)
-    return X
+def get_flowTensor(demand, path_flows, nodes):
+    flows = np.array([(k, v) for k, v in zip(demand.keys(), path_flows)], dtype=object)
+    p1, p2, p3 = [], [], []
+    for od, [path1, path2, path3] in flows:
+        p1.append((od, path1))
+        p2.append((od, path2))
+        p3.append((od, path3))
+    p1 = create_single_tensor(p1, nodes)
+    p2 = create_single_tensor(p2, nodes)
+    p3 = create_single_tensor(p3, nodes)
+    tensor = tf.concat([tf.cast(p1, tf.float32), tf.cast(p2, tf.float32), tf.cast(p3, tf.float32)], axis=1)
+    return tensor
 
 # Try standardize to replace normalize function
 def standardize(tensor):
@@ -123,7 +104,7 @@ def standardize(tensor):
     standardized_tensor = (tensor - mean) / std
     return standardized_tensor
 
-def generate_xy(file_name, path_encoded, standard_norm):
+def generate_xy(file_name, path_encoded, standard_norm=None):
     with open(file_name, "rb") as file:
         stat = pickle.load(file)
     
@@ -135,24 +116,18 @@ def generate_xy(file_name, path_encoded, standard_norm):
 
     # Get X
     if standard_norm == 'standardize':
-        Graph = standardize(get_graphTensor(net))
-        OD_demand = standardize(preprocessTensor(demand, nodes))
-        Path_tensor = standardize(preprocess_path(path_links, nodes, path_encoded))
-        X = get_X(Graph, OD_demand, Path_tensor)  # 625 x 1164
+        Graph = standardize(get_graphTensor(net, nodes)) # 625x3
+        OD_demand = standardize(get_demandTensor(demand, nodes)) #625x1
+        Path_tensor = standardize(get_pathTensor(path_links, nodes, path_encoded))#625x3
+        X = tf.concat([Graph, OD_demand, Path_tensor], axis=1)
+        X = tf.where(tf.equal(X, 0), -1e9, X)
     else:
-        Graph = normalize(get_graphTensor(net))
-        OD_demand = normalize(preprocessTensor(demand, nodes))
-        Path_tensor = normalize(preprocess_path(path_links, nodes, path_encoded))
-        X = get_X(Graph, OD_demand, Path_tensor)  # 625 x 1164
+        Graph = normalize(get_graphTensor(net, nodes))
+        OD_demand = normalize(get_demandTensor(demand, nodes))
+        Path_tensor = normalize(get_pathTensor(path_links, nodes, path_encoded))
+        X = tf.concat([Graph, OD_demand, Path_tensor], axis=1)
+        X = tf.where(tf.equal(X, 0), -1e9, X)
 
     # Get Y
-    Flow_tensor = preprocess_flow(demand, path_flows, nodes)
-    Flow_tensor = tf.squeeze(Flow_tensor, -1)  # 625x3
+    Flow_tensor = get_flowTensor(demand, path_flows, nodes)
     return X, Flow_tensor
-
-def create_attention_mask(input_tensor):
-    batch_size, sequence_length, _ = input_tensor.shape
-    # Create a mask tensor with 0s for valid positions and -inf for padding positions
-    mask = tf.zeros([batch_size, 1, 1, sequence_length], dtype=tf.float32)
-    mask = tf.where(input_tensor != 0, 1.0, float('-inf'), name='attention_mask')
-    return mask
