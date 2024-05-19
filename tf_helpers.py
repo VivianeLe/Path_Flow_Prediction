@@ -1,9 +1,13 @@
-import pandas as pd
 import numpy as np
 import pickle
 import tensorflow as tf
 from tqdm.notebook import tqdm
 from numba import jit
+import matplotlib.pyplot as plt 
+import plotly.graph_objects as go
+import plotly.offline as py
+from bokeh.plotting import figure, show, output_notebook
+from bokeh.models import ColumnDataSource, Label
 
 # Create dictionary of all unique paths
 def path_encoder():
@@ -131,3 +135,53 @@ def generate_xy(file_name, path_encoded, standard_norm=None):
     # Get Y
     Flow_tensor = get_flowTensor(demand, path_flows, nodes)
     return X, Flow_tensor
+
+def plot_loss(train_loss, val_loss, epochs, learning_rate, train_time, N, d_model):
+    plt.figure(figsize=(12, 6))
+    plt.plot(range(1, epochs+1), train_loss, label='Training Loss')
+    plt.plot(range(1, epochs+1), val_loss, label='Validation Loss')
+    plt.xlabel('Epoch')
+    plt.ylabel('Loss')
+    plt.title('Training and Validating Loss')
+    plt.legend()
+    plt.grid(True)
+    plt.text(0.82, 0.75,
+              f'Learning Rate: {learning_rate}\n'
+                f'Training Time: {train_time/60:.2f}m\n'
+                f'Layers number: {N}\n'
+                f'D_model: {d_model}',
+            #   horizontalalignment='center', 
+            #   verticalalignment='center', 
+              transform=plt.gca().transAxes, 
+              fontsize=10
+              )
+
+    plt.show()
+
+def plot_loss_plotly(train_loss, val_loss, epochs, learning_rate, train_time):
+    fig = go.Figure()
+    # Add traces for training and validation loss
+    fig.add_trace(go.Scatter(x=list(range(1, epochs + 1)), y=train_loss, mode='lines', name='Training Loss'))
+    fig.add_trace(go.Scatter(x=list(range(1, epochs + 1)), y=val_loss, mode='lines', name='Validation Loss'))
+
+    # Add title and labels
+    fig.update_layout(
+        title=f'Training and Validation Loss over {epochs} Epochs',
+        xaxis_title='Epoch',
+        yaxis_title='Loss',
+        legend=dict(x=0.01, y=0.99),
+        annotations=[
+            go.layout.Annotation(
+                x=0.5,
+                y=1,
+                xref='paper',
+                yref='paper',
+                showarrow=False,
+                text=f'Learning Rate: {learning_rate}<br>Training Time: {train_time / 60:.2f}m',
+                align='center',
+                bgcolor='white',
+                opacity=0.6
+            )
+        ]
+    )
+    py.plot(fig, filename='Training-and-Validation-Loss')
