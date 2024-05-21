@@ -6,8 +6,6 @@ from numba import jit
 import matplotlib.pyplot as plt 
 import plotly.graph_objects as go
 import plotly.offline as py
-from bokeh.plotting import figure, show, output_notebook
-from bokeh.models import ColumnDataSource, Label
 
 # Create dictionary of all unique paths
 def path_encoder():
@@ -108,7 +106,13 @@ def standardize(tensor):
     standardized_tensor = (tensor - mean) / std
     return standardized_tensor
 
-def generate_xy(file_name, path_encoded, standard_norm=None):
+# Tạo mask trên raw data chưa norm, tính tổng các giá trị theo chiều cuối cùng (dim = -1) 
+#  tức tổng của 7 cột của mỗi hàng. Nếu hàng nào sum >0 thì trả về 1, sum = 0 thì trả về 0
+def create_mask(tensor):
+    mask = tf.expand_dims(tf.sign(tf.reduce_sum(tf.abs(tensor), axis=-1)),-1)
+    return mask
+
+def generate_xy(file_name, path_encoded):
     with open(file_name, "rb") as file:
         stat = pickle.load(file)
     
@@ -119,22 +123,17 @@ def generate_xy(file_name, path_encoded, standard_norm=None):
     net = stat["data"]["network"]
 
     # Get X
-    if standard_norm == 'standardize':
-        Graph = standardize(get_graphTensor(net, nodes)) # 625x3
-        OD_demand = standardize(get_demandTensor(demand, nodes)) #625x1
-        Path_tensor = standardize(get_pathTensor(path_links, nodes, path_encoded))#625x3
-        X = tf.concat([Graph, OD_demand, Path_tensor], axis=1)
-        X = tf.where(tf.equal(X, 0), -1e9, X)
-    else:
-        Graph = normalize(get_graphTensor(net, nodes))
-        OD_demand = normalize(get_demandTensor(demand, nodes))
-        Path_tensor = normalize(get_pathTensor(path_links, nodes, path_encoded))
-        X = tf.concat([Graph, OD_demand, Path_tensor], axis=1)
-        X = tf.where(tf.equal(X, 0), -1e9, X)
+    Graph = get_graphTensor(net, nodes)
+    OD_demand = get_demandTensor(demand, nodes)
+    Path_tensor = get_pathTensor(path_links, nodes, path_encoded)
+    X = tf.concat([Graph, OD_demand, Path_tensor], axis=1)
+    X_mask = create_mask(X)
+    X = tf.concat([normalize(Graph), normalize(OD_demand), normalize(Path_tensor)], axis=1)
 
     # Get Y
-    Flow_tensor = get_flowTensor(demand, path_flows, nodes)
-    return X, Flow_tensor
+    Y = get_flowTensor(demand, path_flows, nodes)
+    Y_mask = create_mask(Y)
+    return X, Y, X_mask, Y_mask
 
 def plot_loss(train_loss, val_loss, epochs, learning_rate, train_time, N, d_model):
     plt.figure(figsize=(12, 6))
