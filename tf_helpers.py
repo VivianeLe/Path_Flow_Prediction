@@ -51,8 +51,8 @@ def create_single_tensor(data, nodes):
     matrix = create_matrix(data, nodes)
     tensor = tf.convert_to_tensor([matrix], dtype=tf.float32)
     tensor = tf.squeeze(tensor, axis=0)
-    tensor = tf.reshape(tensor, [-1]) # Flatten the matrix to a 1D tensor
-    tensor = tf.expand_dims(tensor, axis=1) # TensorShape([625, 1])
+    # tensor = tf.reshape(tensor, [-1]) # Flatten the matrix to a 1D tensor
+    # tensor = tf.expand_dims(tensor, axis=1) # TensorShape([625, 1])
     return tensor
 
 def get_graphTensor(network, nodes):
@@ -108,8 +108,10 @@ def standardize(tensor):
 
 # Tạo mask trên raw data chưa norm, tính tổng các giá trị theo chiều cuối cùng (dim = -1) 
 #  tức tổng của 7 cột của mỗi hàng. Nếu hàng nào sum >0 thì trả về 1, sum = 0 thì trả về 0
+# Nêú muốn sum theo cột thì axis axis = 0 (do tensor tensor 2 chiều), mở rộng dim 0 
 def create_mask(tensor):
-    mask = tf.expand_dims(tf.sign(tf.reduce_sum(tf.abs(tensor), axis=-1)),-1)
+    # mask = tf.expand_dims(tf.sign(tf.reduce_sum(tf.abs(tensor), axis=-1)),-1)
+    mask = tf.expand_dims(tf.sign(tf.reduce_sum(tf.abs(tensor), axis=0)),0)
     return mask
 
 def generate_xy(file_name, path_encoded):

@@ -5,7 +5,6 @@ from tqdm.notebook import tqdm
 from keras.callbacks import EarlyStopping
 from keras.layers import BatchNormalization, Activation, Dense, LayerNormalization, Dropout
 
-
 class MultiHeadAttention(tfl.Layer):
     def __init__(self,input_dim, d_model, num_heads, dropout_rate=0.1):
         super(MultiHeadAttention, self).__init__()
@@ -39,12 +38,13 @@ class MultiHeadAttention(tfl.Layer):
         #scale
         d_k = Q_.shape[-1]
         outputs /= d_k ** 0.5
+        # print(outputs.shape)
         padding_num = -2 ** 32 + 1 #an inf
 
         if att_mask:#padding masking
-            key_masks = tf.cast(key_mask, tf.float32) # (N, T_k,1)
-            key_masks = tf.transpose(key_masks,[0,2,1])# (N, 1,T_k)
-            key_masks = tf.tile(key_masks, [self.num_heads, tf.shape(queries)[1],1]) # (h*N, T_q, T_k)
+            key_masks = tf.cast(key_mask, tf.float32) # (bs, T_k,1)
+            # key_masks = tf.transpose(key_masks,[0,2,1])# (bs, 1,T_k)
+            key_masks = tf.tile(key_masks, [self.num_heads, tf.shape(queries)[1],1]) # (h*bs, T_q, T_k) (batch size * 8, 625, 625)
             paddings = tf.ones_like(outputs)*padding_num
             outputs = tf.where(tf.equal(key_masks, 0), paddings, outputs) # (h*N, T_q, T_k)
  
@@ -87,7 +87,6 @@ class EncoderLayer(tfl.Layer):
 
         ffn_output = self.ffn(x)
         x = self.layer_norm2(x + ffn_output)
-        # x = self.batch_norm(x)
         # x = self.activation(x)
         return x
 
@@ -97,9 +96,10 @@ class Encoder(tfl.Layer):
         self.layers = [EncoderLayer(input_dim, d_model, heads, dropout, l2_reg) for _ in range(N)]
 
     def call(self, x, src_mask):
-        output = x
+        output = tf.transpose(x,[0,2,1])
         for layer in self.layers:
             output = layer(output, src_mask)
+        output = tf.transpose(output,[0,2,1])
         return output
 
 class DecoderLayer(tfl.Layer):
@@ -107,15 +107,14 @@ class DecoderLayer(tfl.Layer):
         super().__init__()
         self.mha1 = MultiHeadAttention(output_dim, d_model, heads, dropout)
         self.layer_norm1 = tfl.LayerNormalization(epsilon=1e-6)
-        self.mha2 = MultiHeadAttention(output_dim, d_model, heads, dropout)
+        self.mha2 = MultiHeadAttention(output_dim*3, d_model, heads, dropout)
         self.layer_norm2 = tfl.LayerNormalization(epsilon=1e-6)
-        self.batch_norm = BatchNormalization()
         self.ffn = Sequential([
             Dense(d_model * 2, activation='leaky_relu', kernel_regularizer=regularizers.l2(l2_reg)),
             Dropout(dropout),
             Dense(d_model,  activation='leaky_relu', kernel_regularizer=regularizers.l2(l2_reg)),
             Dropout(dropout),
-            Dense(output_dim, kernel_regularizer=regularizers.l2(l2_reg))
+            Dense(output_dim*3, kernel_regularizer=regularizers.l2(l2_reg))
         ])
         self.layer_norm3 = tfl.LayerNormalization(epsilon=1e-6)
         self.dropout1 = tfl.Dropout(dropout)
@@ -123,17 +122,15 @@ class DecoderLayer(tfl.Layer):
         self.dropout3 = tfl.Dropout(dropout)
 
     def call(self, x, encoder_output, src_mask, tgt_mask):
+        x = tf.transpose(x,[0,2,1])
         attn1 = self.mha1(x, x, x, tgt_mask)
         x = self.layer_norm1(x + self.dropout1(attn1))
-        x = self.batch_norm(x)
+        x = tf.transpose(x,[0,2,1])
 
-        attn2 = self.mha2(x, encoder_output, encoder_output, src_mask)
-        x = self.layer_norm2(x + self.dropout2(attn2))
-        x = self.batch_norm(x)
-        
+        attn2 = self.mha2(x, encoder_output, encoder_output, src_mask, att_mask=False)
+        x = self.layer_norm2(x + self.dropout2(attn2))    
         ffn_output = self.ffn(x)
         x = self.layer_norm3(x + ffn_output)
-        x = self.batch_norm(x)
         return x
 class Decoder(tfl.Layer):
     def __init__(self, output_dim, d_model, N, heads, dropout, l2_reg=1e-4):
@@ -141,6 +138,7 @@ class Decoder(tfl.Layer):
         self.layers = [DecoderLayer(output_dim, d_model, heads, dropout, l2_reg) for _ in range(N)]
 
     def call(self, x, encoder_output, src_mask, tgt_mask):
+        # x = tf.transpose(x,[0,2,1])
         output = x
         for layer in self.layers:
             output = layer(output, encoder_output, src_mask, tgt_mask)
