@@ -7,11 +7,13 @@ import matplotlib.pyplot as plt
 import plotly.graph_objects as go
 import plotly.offline as py
 
+base_path = 'Output/5by5_Data'
 # Create dictionary of all unique paths
 def path_encoder():
     path_sample = []
     for i in range(10):
-        file_name = f"Output/5by5_Data{i}"
+        # file_name = f"Output/5by5_Data{i}"
+        file_name = ''.join([base_path, str(i)])
         with open(file_name, "rb") as file:
             stat = pickle.load(file)
         path_sample.append(stat["data"]["paths_link"])
