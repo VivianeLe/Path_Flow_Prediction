@@ -52,9 +52,9 @@ def create_matrix(data, nodes):
 def create_single_tensor(data, nodes):
     matrix = create_matrix(data, nodes)
     tensor = tf.convert_to_tensor([matrix], dtype=tf.float32)
-    tensor = tf.squeeze(tensor, axis=0)
-    # tensor = tf.reshape(tensor, [-1]) # Flatten the matrix to a 1D tensor
-    # tensor = tf.expand_dims(tensor, axis=1) # TensorShape([625, 1])
+    tensor = tf.squeeze(tensor, axis=0) # 25,25
+    tensor = tf.reshape(tensor, [-1]) # Flatten the matrix to a 1D tensor
+    tensor = tf.expand_dims(tensor, axis=1) # TensorShape([625, 1])
     return tensor
 
 def get_graphTensor(network, nodes):
@@ -62,10 +62,10 @@ def get_graphTensor(network, nodes):
     length = np.array(network[['init_node', 'term_node', 'length']].apply(lambda row: ((row['init_node'], row['term_node']), row['length']), axis=1).tolist(), dtype=object)
     fft = np.array(network[['init_node', 'term_node', 'free_flow_time']].apply(lambda row: ((row['init_node'], row['term_node']), row['free_flow_time']), axis=1).tolist(), dtype=object)
 
-    Cap = create_single_tensor(cap, nodes)
+    Cap = create_single_tensor(cap, nodes) # 625,1
     Length = create_single_tensor(length, nodes)
     Fft = create_single_tensor(fft, nodes)
-    tensor = tf.concat([tf.cast(Cap, tf.float32), tf.cast(Length, tf.float32), tf.cast(Fft, tf.float32)], axis=1)
+    tensor = tf.concat([tf.cast(Cap, tf.float32), tf.cast(Length, tf.float32), tf.cast(Fft, tf.float32)], axis=1) # 625,3
     return tensor
 
 def get_demandTensor(demand, nodes):
@@ -84,7 +84,7 @@ def get_pathTensor(path_links, nodes, path_encoded):
     p1 = create_single_tensor(p1, nodes)
     p2 = create_single_tensor(p2, nodes)
     p3 = create_single_tensor(p3, nodes)
-    tensor = tf.concat([tf.cast(p1, tf.float32), tf.cast(p2, tf.float32), tf.cast(p3, tf.float32)], axis=1)
+    tensor = tf.concat([tf.cast(p1, tf.float32), tf.cast(p2, tf.float32), tf.cast(p3, tf.float32)], axis=1) # 625,3
     return tensor
 
 def get_flowTensor(demand, path_flows, nodes):
@@ -97,7 +97,7 @@ def get_flowTensor(demand, path_flows, nodes):
     p1 = create_single_tensor(p1, nodes)
     p2 = create_single_tensor(p2, nodes)
     p3 = create_single_tensor(p3, nodes)
-    tensor = tf.concat([tf.cast(p1, tf.float32), tf.cast(p2, tf.float32), tf.cast(p3, tf.float32)], axis=1)
+    tensor = tf.concat([tf.cast(p1, tf.float32), tf.cast(p2, tf.float32), tf.cast(p3, tf.float32)], axis=1) # 625, 3
     return tensor
 
 # Try standardize to replace normalize function
@@ -131,13 +131,14 @@ def generate_xy(file_name, path_encoded):
     OD_demand = get_demandTensor(demand, nodes)
     Path_tensor = get_pathTensor(path_links, nodes, path_encoded)
     X = tf.concat([Graph, OD_demand, Path_tensor], axis=1)
-    X_mask = create_mask(X)
-    X = tf.concat([normalize(Graph), normalize(OD_demand), normalize(Path_tensor)], axis=1)
+    # X_mask = create_mask(X)
+    X = tf.concat([normalize(Graph), normalize(OD_demand), normalize(Path_tensor)], axis=1) # 625, 7
+    X = tf.where(tf.equal(X, 0), 1e-10 * tf.ones_like(X), X)
 
     # Get Y
     Y = get_flowTensor(demand, path_flows, nodes)
-    Y_mask = create_mask(Y)
-    return X, Y, X_mask, Y_mask
+    # Y_mask = create_mask(Y)
+    return X, Y
 
 def plot_loss(train_loss, val_loss, epochs, learning_rate, train_time, N, d_model):
     plt.figure(figsize=(12, 6))
