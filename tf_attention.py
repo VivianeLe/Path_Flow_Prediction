@@ -17,23 +17,23 @@ class MultiHeadAttention(tf.keras.layers.Layer):
         self.d_model = d_model
         self.depth = d_model // num_heads
 
-        # self.dense_q = Dense(d_model, use_bias=True)
-        # self.dense_k = Dense(d_model, use_bias=True)
-        # self.dense_v = Dense(d_model, use_bias=True)
+        self.dense_q = Dense(d_model, use_bias=True)
+        self.dense_k = Dense(d_model, use_bias=True)
+        self.dense_v = Dense(d_model, use_bias=True)
 
         # Create learnable tensor parameters for K, Q, and V
-        self.W_q = self.add_weight(shape=(input_dim, d_model),
-                                  initializer="glorot_uniform",
-                                  trainable=True,
-                                  name="W_q")
-        self.W_k = self.add_weight(shape=(input_dim, d_model),
-                                  initializer="glorot_uniform",
-                                  trainable=True,
-                                  name="W_k")
-        self.W_v = self.add_weight(shape=(input_dim, d_model),
-                                  initializer="glorot_uniform",
-                                  trainable=True,
-                                  name="W_v")
+        # self.W_q = self.add_weight(shape=(input_dim, d_model),
+        #                           initializer="glorot_uniform",
+        #                           trainable=True,
+        #                           name="W_q")
+        # self.W_k = self.add_weight(shape=(input_dim, d_model),
+        #                           initializer="glorot_uniform",
+        #                           trainable=True,
+        #                           name="W_k")
+        # self.W_v = self.add_weight(shape=(input_dim, d_model),
+        #                           initializer="glorot_uniform",
+        #                           trainable=True,
+        #                           name="W_v")
 
         self.dropout = Dropout(dropout_rate)
         self.norm = LayerNormalization(epsilon=1e-6)
@@ -41,13 +41,13 @@ class MultiHeadAttention(tf.keras.layers.Layer):
 
     def call(self, queries, keys, values):
         # Linear projections
-        # Q = self.dense_q(queries)
-        # K = self.dense_k(keys)
-        # V = self.dense_v(values)
+        Q = self.dense_q(queries)
+        K = self.dense_k(keys)
+        V = self.dense_v(values)
 
-        Q = tf.matmul(queries, self.W_q)  # (N, T_q, d_model)
-        K = tf.matmul(keys, self.W_k)  # (N, T_k, d_model)
-        V = tf.matmul(values, self.W_v)  # (N, T_k, d_model)
+        # Q = tf.matmul(queries, self.W_q)  # (N, T_q, d_model)
+        # K = tf.matmul(keys, self.W_k)  # (N, T_k, d_model)
+        # V = tf.matmul(values, self.W_v)  # (N, T_k, d_model)
 
         # Split and concat, multi_head
         Q_ = tf.concat(tf.split(Q, self.num_heads, axis=2), axis=0)  # (h*N, T_q, d_model/h)
@@ -108,14 +108,14 @@ class MultiHeadAttention(tf.keras.layers.Layer):
 #         return x
     
 class EncoderLayer(tfl.Layer):
-    def __init__(self, input_dim, d_model, heads, dropout, l2_reg=1e-4):
+    def __init__(self, input_dim, d_model, heads, dropout):
         super().__init__()
         self.attn_layer = MultiHeadAttention(input_dim, d_model, heads, dropout)
         self.layer_norm1 = LayerNormalization(epsilon=1e-6)
         self.batch_norm = BatchNormalization()
 
         self.ffn = Sequential([
-            Dense(d_model,  activation='leaky_relu'),
+            Dense(d_model,  activation='relu'),
             Dense(input_dim),
             Dropout(dropout)
         ])
@@ -131,9 +131,9 @@ class EncoderLayer(tfl.Layer):
         return x
 
 class Encoder(tfl.Layer):
-    def __init__(self, input_dim, d_model, N, heads, dropout, l2_reg=1e-4):
+    def __init__(self, input_dim, d_model, N, heads, dropout):
         super().__init__()
-        self.layers = [EncoderLayer(input_dim, d_model, heads, dropout, l2_reg) for _ in range(N)]
+        self.layers = [EncoderLayer(input_dim, d_model, heads, dropout) for _ in range(N)]
         # self.dense = tfl.Dense(3)
 
     def call(self, x):
@@ -145,16 +145,16 @@ class Encoder(tfl.Layer):
         return output
 
 class DecoderLayer(tfl.Layer):
-    def __init__(self, output_dim, d_model, heads, dropout, l2_reg=1e-4):
+    def __init__(self, output_dim, d_model, heads, dropout):
         super().__init__()
         self.mha1 = MultiHeadAttention(output_dim, d_model, heads, dropout)
         self.layer_norm1 = tfl.LayerNormalization(epsilon=1e-6)
         self.mha2 = MultiHeadAttention(output_dim, d_model, heads, dropout)
         self.layer_norm2 = tfl.LayerNormalization(epsilon=1e-6)
         self.ffn = Sequential([
-            Dense(d_model * 2, activation='leaky_relu', kernel_regularizer=regularizers.l2(l2_reg)),
+            # Dense(d_model * 2, activation='relu'),
             # Dropout(dropout),
-            Dense(d_model, activation='leaky_relu'),
+            Dense(d_model, activation='relu'),
             Dense(output_dim),
             Dropout(dropout),
         ])
@@ -162,10 +162,10 @@ class DecoderLayer(tfl.Layer):
         self.dropout1 = tfl.Dropout(dropout)
         self.dropout2 = tfl.Dropout(dropout)
         self.dropout3 = tfl.Dropout(dropout)
-        self.dense = Dense(output_dim, activation='leaky_relu', kernel_regularizer=regularizers.l2(l2_reg))
+        self.dense = Dense(output_dim, activation='relu')
 
     def call(self, x, encoder_output):
-        encoder_output = self.dense(encoder_output)
+        # encoder_output = self.dense(encoder_output)
         attn1 = self.mha1(x, x, x)
         x = self.layer_norm1(x + self.dropout1(attn1))
 
@@ -201,9 +201,9 @@ class DecoderLayer(tfl.Layer):
 #         return x
     
 class Decoder(tfl.Layer):
-    def __init__(self, output_dim, d_model, N, heads, dropout, l2_reg=1e-4):
+    def __init__(self, output_dim, d_model, N, heads, dropout):
         super().__init__()
-        self.layers = [DecoderLayer(output_dim, d_model, heads, dropout, l2_reg) for _ in range(N)]
+        self.layers = [DecoderLayer(output_dim, d_model, heads, dropout) for _ in range(N)]
         self.layer_norm = tfl.LayerNormalization()
 
     def call(self, x, encoder_output, training=None):
@@ -224,8 +224,8 @@ class Transformer(tfl.Layer):
     def call(self, x, y):
         encoder_output = self.encoder(x)
         decoder_output = self.decoder(y, encoder_output)
-        decoder_output = self.dense(decoder_output)
-        return decoder_output
+        output = self.dense(decoder_output)
+        return output
     
     def eval(self):
         for layer in self.encoder.layers:

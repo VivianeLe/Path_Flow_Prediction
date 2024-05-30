@@ -27,3 +27,4 @@ Nhân X (shape 25, 175) với Wq, Wk, Wv => Q, K, V shape 25, d_model
 Nhân Q với K transpose, chia dk**0.5 => attention tensor 25, 25
 Không có mask (hoặc thử có mask), thay thế các giá trị = 0 trong input tensor = -inf
 Nhân attention tensor với V => 25, d_model
+* Thử apply label encoder với mỗi path set của mỗi OD pair (mỗi set of 3 là 1 số)
