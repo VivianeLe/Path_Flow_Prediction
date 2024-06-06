@@ -7,6 +7,7 @@ from numba import jit
 import matplotlib.pyplot as plt 
 import plotly.graph_objects as go
 import plotly.offline as py
+from numba import jit
 
 base_path = 'Output/5by5_Data'
 # Create dictionary of all unique paths
@@ -74,9 +75,12 @@ def create_single_tensor(data, nodes):
     return tensor
 
 def get_graphTensor(network, nodes):
-    cap = np.array(network[['init_node', 'term_node', 'capacity']].apply(lambda row: ((row['init_node'], row['term_node']), row['capacity']), axis=1).tolist(), dtype=object)
-    length = np.array(network[['init_node', 'term_node', 'length']].apply(lambda row: ((row['init_node'], row['term_node']), row['length']), axis=1).tolist(), dtype=object)
-    fft = np.array(network[['init_node', 'term_node', 'free_flow_time']].apply(lambda row: ((row['init_node'], row['term_node']), row['free_flow_time']), axis=1).tolist(), dtype=object)
+    cap = np.array(network[['init_node', 'term_node', 'capacity']]\
+                   .apply(lambda row: ((row['init_node'], row['term_node']), row['capacity']), axis=1).tolist(), dtype=object)
+    length = np.array(network[['init_node', 'term_node', 'length']]\
+                    .apply(lambda row: ((row['init_node'], row['term_node']), row['length']), axis=1).tolist(), dtype=object)
+    fft = np.array(network[['init_node', 'term_node', 'free_flow_time']]\
+                   .apply(lambda row: ((row['init_node'], row['term_node']), row['free_flow_time']), axis=1).tolist(), dtype=object)
 
     Cap = create_single_tensor(cap, nodes) # 625,1
     Length = create_single_tensor(length, nodes)
@@ -88,20 +92,6 @@ def get_demandTensor(demand, nodes):
     tensor = np.array([(key, value) for key, value in demand.items()], dtype=object)
     tensor = create_single_tensor(tensor, nodes)
     return tensor
-
-# def get_pathTensor(path_links, nodes, path_encoded):
-#     paths = np.array([(key, [tuple(path) for path in value]) for key, value in path_links.items()], dtype=object)
-#     p1, p2, p3 = [], [], []
-#     for od, [path1, path2, path3] in paths:
-#         p1.append((od, path_encoded[path1]))
-#         p2.append((od, path_encoded[path2]))
-#         p3.append((od, path_encoded[path3]))
-
-#     p1 = create_single_tensor(p1, nodes)
-#     p2 = create_single_tensor(p2, nodes)
-#     p3 = create_single_tensor(p3, nodes)
-#     tensor = tf.concat([tf.cast(p1, tf.float32), tf.cast(p2, tf.float32), tf.cast(p3, tf.float32)], axis=1) # 625,3
-#     return tensor
 
 def get_pathTensor(path_links, nodes, unique_set):
     paths = np.array([(key, [tuple(tuple(path)) for path in value]) for key, value in path_links.items()], dtype=object)
@@ -130,12 +120,9 @@ def standardize(tensor):
     standardized_tensor = (tensor - mean) / std
     return standardized_tensor
 
-# Tạo mask trên raw data chưa norm, tính tổng các giá trị theo chiều cuối cùng (dim = -1) 
-#  tức tổng của 7 cột của mỗi hàng. Nếu hàng nào sum >0 thì trả về 1, sum = 0 thì trả về 0
-# Nêú muốn sum theo cột thì axis axis = 0 (do tensor tensor 2 chiều), mở rộng dim 0 
 def create_mask(tensor):
-    # mask = tf.expand_dims(tf.sign(tf.reduce_sum(tf.abs(tensor), axis=-1)),-1)
-    mask = tf.expand_dims(tf.sign(tf.reduce_sum(tf.abs(tensor), axis=0)),0)
+    mask = tf.expand_dims(tf.sign(tf.reduce_sum(tf.abs(tensor), axis=-1)),-1) # create mask for row
+    # mask = tf.expand_dims(tf.sign(tf.reduce_sum(tf.abs(tensor), axis=0)),0) # create mask for column
     return mask
 
 def generate_xy(file_name, unique_set):
@@ -153,14 +140,14 @@ def generate_xy(file_name, unique_set):
     OD_demand = get_demandTensor(demand, nodes)
     Path_tensor = get_pathTensor(path_links, nodes, unique_set)
     X = tf.concat([Graph, OD_demand, Path_tensor], axis=1)
-    # X_mask = create_mask(X)
+    X_mask = create_mask(X)
     X = tf.concat([normalize(Graph), normalize(OD_demand), normalize(Path_tensor)], axis=1) # 625, 7
     # X = tf.where(tf.equal(X, 0), 1e-10 * tf.ones_like(X), X)
 
     # Get Y
     Y = get_flowTensor(demand, path_flows, nodes)
-    # Y_mask = create_mask(Y)
-    return X, Y
+    Y_mask = create_mask(Y)
+    return X, Y, X_mask, Y_mask
 
 def plot_loss(train_loss, val_loss, epochs, learning_rate, train_time, N, d_model):
     plt.figure(figsize=(12, 6))
@@ -211,3 +198,17 @@ def plot_loss_plotly(train_loss, val_loss, epochs, learning_rate, train_time):
         ]
     )
     py.plot(fig, filename='Training-and-Validation-Loss')
+
+# def get_pathTensor(path_links, nodes, path_encoded):
+#     paths = np.array([(key, [tuple(path) for path in value]) for key, value in path_links.items()], dtype=object)
+#     p1, p2, p3 = [], [], []
+#     for od, [path1, path2, path3] in paths:
+#         p1.append((od, path_encoded[path1]))
+#         p2.append((od, path_encoded[path2]))
+#         p3.append((od, path_encoded[path3]))
+
+#     p1 = create_single_tensor(p1, nodes)
+#     p2 = create_single_tensor(p2, nodes)
+#     p3 = create_single_tensor(p3, nodes)
+#     tensor = tf.concat([tf.cast(p1, tf.float32), tf.cast(p2, tf.float32), tf.cast(p3, tf.float32)], axis=1) # 625,3
+#     return tensor
