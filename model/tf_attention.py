@@ -5,6 +5,8 @@ from tqdm.notebook import tqdm
 from keras.callbacks import EarlyStopping, ReduceLROnPlateau
 from keras.layers import Layer, BatchNormalization, Dense, LayerNormalization, Dropout
 from tensorflow.keras.regularizers import l2
+import numpy as np
+from sklearn.metrics import mean_squared_error, mean_absolute_error, mean_absolute_percentage_error
 
 class MultiHeadAttention(Layer):
     def __init__(self, input_dim, d_model, num_heads, dropout_rate=0.1):
@@ -272,3 +274,23 @@ class Transformer(Layer):
                     print(f"Early stopping triggered at epoch {early_stopping.stopped_epoch + 1}")
                     break
         return self, train_losses, val_losses
+
+def evaluate_model(model, test_data_loader, device):
+    model.eval()
+    total_test_loss = 0
+    true_values = []
+    predicted_values = []
+    for src, trg, src_mask, tgt_mask in test_data_loader:
+        with tf.device(device):
+            output = model.call(src, trg, src_mask, tgt_mask)
+            # loss = loss_fn(trg, output)
+            # total_test_loss += loss.numpy()
+            true_values.extend(trg.numpy().flatten())
+            predicted_values.extend(output.numpy().flatten())
+
+    # test_loss = total_test_loss / len(test_data_loader)
+    rmse = np.sqrt(mean_squared_error(true_values, predicted_values))
+    mae = mean_absolute_error(true_values, predicted_values)
+    mape = mean_absolute_percentage_error(true_values, predicted_values)
+
+    return rmse, mae, mape

@@ -1,20 +1,18 @@
-from os import path
 import numpy as np
 import pickle
 import tensorflow as tf
 from tqdm.notebook import tqdm
-from numba import jit
 import matplotlib.pyplot as plt 
-import plotly.graph_objects as go
-import plotly.offline as py
-from numba import jit
+from sklearn.preprocessing import MinMaxScaler
+from sklearn.decomposition import PCA
+from model.Parameters import *
 
-base_path = 'Output/5by5_Data'
+param = Params()
 # Create dictionary of all unique paths
 def path_encoder():
     path_sample = []
     for i in range(10):
-        file_name = ''.join([base_path, str(i)])
+        file_name = ''.join([param.base_path, str(i)])
         with open(file_name, "rb") as file:
             stat = pickle.load(file)
         path_sample.append(stat["data"]["paths_link"])
@@ -24,38 +22,26 @@ def path_encoder():
     path_set_dict = {v: k for k, v in enumerate(unique_values_set, start=1)}
     return path_set_dict
 
-def unique_set():
-    path_sample = []
-    for i in range(10):
-        file_name = ''.join([base_path, str(i)])
-        with open(file_name, "rb") as file:
-            stat = pickle.load(file)
-        path_sample.append(stat["data"]["paths_link"])
-    a = [v for path in path_sample for v in path.values()]
-    b = []
-    for i in range(len(a)):
-        b.append(tuple(tuple(x) for x in a[i]))
-
-    b = set(b)
-    b = {v: k for k, v in enumerate(b, start=1)}
-    return b
-
-# Normalize tensor by Min-max scaling
 def normalize(tensor):
-    min_values = tf.reduce_min(tensor, axis=0)
-    max_values = tf.reduce_max(tensor, axis=0)
-    
-    scaled_tensor = (tensor - min_values) / (max_values - min_values)
-    mask = tf.equal(min_values, max_values)
-    scaled_tensor = tf.where(mask, 1.0, scaled_tensor)
-    return scaled_tensor
+    tensorY = tensor.numpy()
+    scaler = MinMaxScaler()
+    tensorY = scaler.fit_transform(tensorY)
+    tensorY = tf.convert_to_tensor(tensorY, dtype=tf.float32)
+    return tensorY
 
 def get_Link_Path_adj(net, path_encoded):
     link_path = tf.zeros((net.shape[0], len(path_encoded)), dtype=tf.float32)
+    indices = []
+    updates = []
     for p, index in path_encoded.items():
         for link in p:
-            link_path = link_path.write(link, link_path.read(link).scatter(tf.IndexedSlices(1.0, [index-1])))
-    return link_path.stack()
+            indices.append([link, index - 1])
+            updates.append(1.0)
+    indices = tf.constant(indices, dtype=tf.int32)
+    updates = tf.constant(updates, dtype=tf.float32)
+    link_path = tf.tensor_scatter_nd_update(link_path, indices, updates)
+    
+    return link_path
 
 def create_matrix(data, nodes):
     # data is an array, nodes is a set
@@ -93,12 +79,38 @@ def get_demandTensor(demand, nodes):
     tensor = create_single_tensor(tensor, nodes)
     return tensor
 
-def get_pathTensor(path_links, nodes, unique_set):
-    paths = np.array([(key, [tuple(tuple(path)) for path in value]) for key, value in path_links.items()], dtype=object)
-    path_set = [(od, unique_set[tuple(path)]) for od, path in paths]
-    tensor = create_single_tensor(path_set, nodes)
+# Get 3 feasible paths for each OD pair, return tensor shape 625x3
+def get_pathTensor(path_links, nodes, path_encoded):
+    paths = np.array([(key, [tuple(path) for path in value]) for key, value in path_links.items()], dtype=object)
+    p1, p2, p3 = [], [], []
+    for od, [path1, path2, path3] in paths:
+        p1.append((od, path_encoded[path1]))
+        p2.append((od, path_encoded[path2]))
+        p3.append((od, path_encoded[path3]))
+
+    p1 = create_single_tensor(p1, nodes)
+    p2 = create_single_tensor(p2, nodes)
+    p3 = create_single_tensor(p3, nodes)
+    tensor = tf.concat([tf.cast(p1, tf.float32), tf.cast(p2, tf.float32), tf.cast(p3, tf.float32)], axis=1)
     return tensor
 
+def get_pair_path_tensor(path_encoded, path_links, nodes):
+    pair_path_dict = {k: [path_encoded[tuple(path)] for path in v] for k, v in path_links.items()}
+    pair_path_tensor = tf.zeros((len(nodes), len(nodes), len(path_encoded)), dtype=tf.float32) # shape (25,25,1155)
+
+    indices = []
+    updates = []
+    for (o, d), k_list in pair_path_dict.items():
+        for k in k_list:
+            indices.append([o-1, d-1, k-1])
+            updates.append(1.0)
+    indices_tensor = tf.constant(indices, dtype=tf.int64)
+    updates_tensor = tf.constant(updates, dtype=tf.float32)
+    pair_path_tensor = tf.tensor_scatter_nd_update(pair_path_tensor, indices_tensor, updates_tensor)
+    pair_path_tensor = tf.reshape(pair_path_tensor, (len(nodes)**2, pair_path_tensor.shape[-1]))
+    return pair_path_tensor
+
+# Get path flow distribution (Y), return a tensor 625x3
 def get_flowTensor(demand, path_flows, nodes):
     flows = np.array([(k, v) for k, v in zip(demand.keys(), path_flows)], dtype=object)
     p1, p2, p3 = [], [], []
@@ -112,18 +124,19 @@ def get_flowTensor(demand, path_flows, nodes):
     tensor = tf.concat([tf.cast(p1, tf.float32), tf.cast(p2, tf.float32), tf.cast(p3, tf.float32)], axis=1) # 625, 3
     return tensor
 
-# Try standardize to replace normalize function
-def standardize(tensor):
-    mean = tf.reduce_mean(tensor, axis=0)
-    std = tf.math.reduce_std(tensor, axis=0)
-    std = tf.where(tf.equal(std, 0), 1.0, std)
-    standardized_tensor = (tensor - mean) / std
-    return standardized_tensor
-
 def create_mask(tensor):
     mask = tf.expand_dims(tf.sign(tf.reduce_sum(tf.abs(tensor), axis=-1)),-1) # create mask for row
     # mask = tf.expand_dims(tf.sign(tf.reduce_sum(tf.abs(tensor), axis=0)),0) # create mask for column
     return mask
+
+def reduce_dimensionality(X, n_components):
+    X_np = X.numpy()
+    pca = PCA(n_components=n_components)
+    X_pca = pca.fit_transform(X_np)
+
+    # Convert back to TensorFlow tensor
+    X_pca_tf = tf.convert_to_tensor(X_pca, dtype=tf.float32)
+    return X_pca_tf
 
 def generate_xy(file_name, unique_set):
     with open(file_name, "rb") as file:
@@ -136,18 +149,20 @@ def generate_xy(file_name, unique_set):
     net = stat["data"]["network"]
 
     # Get X
-    Graph = get_graphTensor(net, nodes)
-    OD_demand = get_demandTensor(demand, nodes)
-    Path_tensor = get_pathTensor(path_links, nodes, unique_set)
-    X = tf.concat([Graph, OD_demand, Path_tensor], axis=1)
-    X_mask = create_mask(X)
-    X = tf.concat([normalize(Graph), normalize(OD_demand), normalize(Path_tensor)], axis=1) # 625, 7
-    # X = tf.where(tf.equal(X, 0), 1e-10 * tf.ones_like(X), X)
+    Graph = get_graphTensor(net, nodes) # (625, 3)
+    OD_demand = get_demandTensor(demand, nodes) # (625,1)
+    Pair_path = get_pair_path_tensor(unique_set,path_links,nodes) # (625, 1155)
+    Path_set = get_pathTensor(path_links, nodes, unique_set) # (625, 3)
+    X = tf.concat([tf.cast(normalize(Graph), tf.float32),
+                   tf.cast(normalize(OD_demand), tf.float32),
+                   tf.cast(normalize(Path_set), tf.float32),
+                   tf.cast(Pair_path, tf.float32)], axis=1) # (625,1162)
+    # X_mask = create_mask(X)
 
     # Get Y
-    Y = get_flowTensor(demand, path_flows, nodes)
-    Y_mask = create_mask(Y)
-    return X, Y, X_mask, Y_mask
+    Y = normalize(get_flowTensor(demand, path_flows, nodes))
+    # Y_mask = create_mask(Y)
+    return X, Y
 
 def plot_loss(train_loss, val_loss, epochs, learning_rate, train_time, N, d_model):
     plt.figure(figsize=(12, 6))
@@ -170,45 +185,3 @@ def plot_loss(train_loss, val_loss, epochs, learning_rate, train_time, N, d_mode
               )
 
     plt.show()
-
-def plot_loss_plotly(train_loss, val_loss, epochs, learning_rate, train_time):
-    fig = go.Figure()
-    # Add traces for training and validation loss
-    fig.add_trace(go.Scatter(x=list(range(1, epochs + 1)), y=train_loss, mode='lines', name='Training Loss'))
-    fig.add_trace(go.Scatter(x=list(range(1, epochs + 1)), y=val_loss, mode='lines', name='Validation Loss'))
-
-    # Add title and labels
-    fig.update_layout(
-        title=f'Training and Validation Loss over {epochs} Epochs',
-        xaxis_title='Epoch',
-        yaxis_title='Loss',
-        legend=dict(x=0.01, y=0.99),
-        annotations=[
-            go.layout.Annotation(
-                x=0.5,
-                y=1,
-                xref='paper',
-                yref='paper',
-                showarrow=False,
-                text=f'Learning Rate: {learning_rate}<br>Training Time: {train_time / 60:.2f}m',
-                align='center',
-                bgcolor='white',
-                opacity=0.6
-            )
-        ]
-    )
-    py.plot(fig, filename='Training-and-Validation-Loss')
-
-# def get_pathTensor(path_links, nodes, path_encoded):
-#     paths = np.array([(key, [tuple(path) for path in value]) for key, value in path_links.items()], dtype=object)
-#     p1, p2, p3 = [], [], []
-#     for od, [path1, path2, path3] in paths:
-#         p1.append((od, path_encoded[path1]))
-#         p2.append((od, path_encoded[path2]))
-#         p3.append((od, path_encoded[path3]))
-
-#     p1 = create_single_tensor(p1, nodes)
-#     p2 = create_single_tensor(p2, nodes)
-#     p3 = create_single_tensor(p3, nodes)
-#     tensor = tf.concat([tf.cast(p1, tf.float32), tf.cast(p2, tf.float32), tf.cast(p3, tf.float32)], axis=1) # 625,3
-#     return tensor
