@@ -6,6 +6,9 @@ from keras import layers as tfl
 import keras
 from keras.callbacks import EarlyStopping, ReduceLROnPlateau
 from sklearn.metrics import mean_squared_error, mean_absolute_error, mean_absolute_percentage_error
+from tensorflow.keras.mixed_precision import set_global_policy, Policy
+policy = Policy('mixed_float16')
+set_global_policy(policy)
 
 class EncoderLayer(tfl.Layer):
     def __init__(self, input_dim, d_model, heads, dropout):
@@ -96,43 +99,38 @@ class Transformer(keras.Model):
         for layer in self.decoder.layers:
             layer.trainable = True
 
-def training_loop(model, train_data_loader, val_data_loader, epochs, loss_fn, optimizer, device):
+def training_loop(model, train_data_loader, val_data_loader, epochs, loss_fn, optimizer, device, gradient_accumulation_steps=4):
     train_losses = []
     val_losses = []
-
-    # Define the early stopping callback
-    early_stopping = EarlyStopping(
-        monitor='val_loss',
-        patience=5,
-        verbose=1,
-        mode='min',
-        restore_best_weights=True
-    )
-
-    lr_scheduler = ReduceLROnPlateau(
-        monitor='val_loss',
-        factor=0.5,
-        patience=3,
-        verbose=1,
-        mode='min',
-        min_lr=1e-6
-    )
-    # Training loop
     with tqdm(total=epochs, unit="epoch") as pbar:
-        for epoch in range(epochs):    
+        for epoch in range(epochs):
             # Training phase
             total_train_loss = 0
-            for src, trg in train_data_loader:
+            accumulated_gradients = [tf.zeros_like(var) for var in model.trainable_variables]
+            for step, (src, trg) in enumerate(train_data_loader):
                 with tf.device(device):
                     with tf.GradientTape() as tape:
                         output = model(src, trg, training=True)
                         loss = loss_fn(trg, output)
+                        loss = loss / gradient_accumulation_steps  # Normalize the loss to account for gradient accumulation
 
-                    # Backpropagate and update the model
+                    # Accumulate gradients
                     gradients = tape.gradient(loss, model.trainable_variables)
-                    optimizer.apply_gradients(zip(gradients, model.trainable_variables))
+                    for i, (accum_grad, grad) in enumerate(zip(accumulated_gradients, gradients)):
+                        if grad is not None:
+                            accumulated_gradients[i] += grad
+
+                    if (step + 1) % gradient_accumulation_steps == 0:
+                        # Loại bỏ các cặp gradient-None
+                        gradients_and_vars = [
+                            (grad, var) for grad, var in zip(accumulated_gradients, model.trainable_variables) if grad is not None
+                        ]
+                        if gradients_and_vars:  # Chỉ áp dụng nếu có gradient hợp lệ
+                            optimizer.apply_gradients(gradients_and_vars)
+                        accumulated_gradients = [tf.zeros_like(var) for var in model.trainable_variables]
+
                     total_train_loss += loss.numpy()
-                    pbar.set_description(f"Train Loss: {total_train_loss / len(train_data_loader):.4f}")
+                    pbar.set_description(f"Train Loss: {total_train_loss / ((step + 1) * gradient_accumulation_steps):.4f}")
 
             # Validation phase
             model.eval()
@@ -147,16 +145,10 @@ def training_loop(model, train_data_loader, val_data_loader, epochs, loss_fn, op
                     pbar.set_description(f"Val Loss: {total_val_loss / len(val_data_loader):.4f}")
 
             pbar.update(1)
-            train_losses.append(total_train_loss / len(train_data_loader))
             val_losses.append(total_val_loss / len(val_data_loader))
-            print(f"Epoch: {epoch+1} - Train Loss: {total_train_loss/len(train_data_loader):.4f}, Val Loss: {total_val_loss/len(val_data_loader):.4f}")
-
-            # Check for early stopping
-            early_stopping.on_epoch_end(epoch, {'val_loss': total_val_loss / len(val_data_loader)})
-            lr_scheduler.on_epoch_end(epoch, {'val_loss': total_val_loss / len(val_data_loader)})
-            if early_stopping.stopped_epoch > 0:
-                print(f"Early stopping triggered at epoch {early_stopping.stopped_epoch + 1}")
-                break
+            train_losses.append(total_train_loss / ((step + 1) * gradient_accumulation_steps))
+            print(f"Epoch: {epoch+1} - Train Loss: {total_train_loss/((step + 1) * gradient_accumulation_steps):.4f}, "
+                  f"Val Loss: {total_val_loss/len(val_data_loader):.4f}")
         return model, train_losses, val_losses
 
 def evaluate_model(model, test_data_loader, device):

@@ -155,8 +155,9 @@ def generate_xy(file_name, unique_set):
     Path_set = get_pathTensor(path_links, nodes, unique_set) # (625, 3)
     X = tf.concat([tf.cast(normalize(Graph), tf.float32),
                    tf.cast(normalize(OD_demand), tf.float32),
-                   tf.cast(normalize(Path_set), tf.float32),
-                   tf.cast(Pair_path, tf.float32)], axis=1) # (625,1162)
+                   tf.cast(normalize(Path_set), tf.float32)
+                #    tf.cast(Pair_path, tf.float32)
+                   ], axis=1) # (625,1162)
     # X_mask = create_mask(X)
 
     # Get Y
@@ -184,4 +185,14 @@ def plot_loss(train_loss, val_loss, epochs, learning_rate, train_time, N, d_mode
               fontsize=10
               )
 
+    plt.show()
+
+def plot_history(history):
+    plt.figure(figsize=(12, 6))
+    plt.plot(history.history['loss'], label='Train Loss')
+    plt.plot(history.history['val_loss'], label='Validation Loss')
+    plt.title('Model loss')
+    plt.xlabel('Epoch')
+    plt.ylabel('Loss')
+    plt.legend(loc='upper right')
     plt.show()
