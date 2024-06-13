@@ -21,7 +21,7 @@ class EncoderLayer(tfl.Layer):
         self.layer_norm2 = tfl.LayerNormalization(epsilon=1e-6)
     def call(self, x, training=None):
         attn_output = self.attn_layer(query=x, key=x, value=x, training=training)
-        x = self.layer_norm1(x + self.dropout(attn_output), training=training)
+        x = self.layer_norm1(x + self.dropout(attn_output))
         ffn_output = self.dense2(self.dropout(self.dense1(x)), training=training)
         x = self.layer_norm2(x + ffn_output)
         return x
@@ -54,10 +54,9 @@ class DecoderLayer(tfl.Layer):
         self.dropout3 = tfl.Dropout(dropout)
     def call(self, x, encoder_output, training=None):
         attn1 = self.mha1(query=x, key=x, value=x, training=training)
-        x = self.layer_norm1(x + self.dropout1(attn1), training=training)
-        # Encoder-decoder attention
+        x = self.layer_norm1(x + self.dropout1(attn1))
         attn2 = self.mha2(query=x, key=encoder_output, value=encoder_output, training=training)
-        x = self.layer_norm2(x + self.dropout2(attn2), training=training)
+        x = self.layer_norm2(x + self.dropout2(attn2))
         ffn_output = self.dense2(self.dropout3(self.dense1(x)), training=training)
         x = self.layer_norm3(x + ffn_output)
         return x
@@ -99,7 +98,7 @@ class Transformer(keras.Model):
         for layer in self.decoder.layers:
             layer.trainable = True
 
-def training_loop(model, train_data_loader, val_data_loader, epochs, loss_fn, optimizer, device, gradient_accumulation_steps=4):
+def training_loop(model, train_data_loader, val_data_loader, epochs, loss_fn, optimizer, device, gradient_accumulation_steps=8):
     train_losses = []
     val_losses = []
     with tqdm(total=epochs, unit="epoch") as pbar:
@@ -112,7 +111,7 @@ def training_loop(model, train_data_loader, val_data_loader, epochs, loss_fn, op
                     with tf.GradientTape() as tape:
                         output = model(src, trg, training=True)
                         loss = loss_fn(trg, output)
-                        loss = loss / gradient_accumulation_steps  # Normalize the loss to account for gradient accumulation
+                        loss = loss / gradient_accumulation_steps 
 
                     # Accumulate gradients
                     gradients = tape.gradient(loss, model.trainable_variables)
@@ -121,11 +120,10 @@ def training_loop(model, train_data_loader, val_data_loader, epochs, loss_fn, op
                             accumulated_gradients[i] += grad
 
                     if (step + 1) % gradient_accumulation_steps == 0:
-                        # Loại bỏ các cặp gradient-None
                         gradients_and_vars = [
                             (grad, var) for grad, var in zip(accumulated_gradients, model.trainable_variables) if grad is not None
                         ]
-                        if gradients_and_vars:  # Chỉ áp dụng nếu có gradient hợp lệ
+                        if gradients_and_vars:
                             optimizer.apply_gradients(gradients_and_vars)
                         accumulated_gradients = [tf.zeros_like(var) for var in model.trainable_variables]
 
