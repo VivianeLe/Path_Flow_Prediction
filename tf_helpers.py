@@ -5,7 +5,7 @@ from tqdm.notebook import tqdm
 import matplotlib.pyplot as plt 
 from sklearn.preprocessing import MinMaxScaler
 from sklearn.decomposition import PCA
-from model.Parameters import *
+from Parameters import *
 
 param = Params()
 # Create dictionary of all unique paths
