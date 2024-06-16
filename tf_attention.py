@@ -4,11 +4,9 @@ from keras import regularizers, Sequential
 from tqdm.notebook import tqdm
 from keras.callbacks import EarlyStopping
 from keras.layers import BatchNormalization, Activation, Dense, LayerNormalization, Dropout
-# import pandas as pd
-# import numpy as np
-# import keras
-from sklearn.metrics import mean_squared_error, mean_absolute_error, mean_absolute_percentage_error
-from keras.metrics import MeanAbsoluteError, MeanAbsolutePercentageError, RootMeanSquaredError
+from sklearn.metrics import mean_squared_error, mean_absolute_error
+import numpy as np
+# from keras.metrics import MeanAbsoluteError, MeanAbsolutePercentageError, RootMeanSquaredError, MeanSquaredError
 from tensorflow.keras.activations import sigmoid
 from tensorflow.keras.mixed_precision import set_global_policy, Policy
 policy = Policy('mixed_float16')
@@ -183,7 +181,8 @@ class Transformer(tfl.Layer):
     def call(self, x, y, src_mask, tgt_mask, training=None):
         encoder_output = self.encoder(x, src_mask, training=training)
         decoder_output = self.decoder(y, encoder_output, src_mask, tgt_mask, training=training)
-        return self.activation(decoder_output)
+        decoder_output = self.activation(decoder_output)
+        return decoder_output
     
     def eval(self):
         for layer in self.encoder.layers:
@@ -270,26 +269,49 @@ class Transformer(tfl.Layer):
                         break
         return self, train_losses, val_losses
 
-def evaluate_model(model, test_data_loader, device):
-    model.eval()  # Ensure the model is in evaluation mode
+def evaluate_model(model, test_data_loader, scalers, device, epsilon=1):
+    model.eval() 
     true_values = []
     predicted_values = []
-
-    for src, trg, src_mask, tgt_mask in test_data_loader:
+    scaler_idx = 0
+    for batch in test_data_loader:
+        src, trg, src_mask, tgt_mask = batch
         with tf.device(device):
-            output = model(src, trg, src_mask, tgt_mask)
-            true_values.extend(trg.numpy().flatten())
-            predicted_values.extend(output.numpy().flatten())
+            output = model(src, trg, src_mask, tgt_mask, training=False)
+            tgt_mask = tf.cast(tgt_mask, dtype=output.dtype)
+            output = output * tgt_mask
 
-    rmse = RootMeanSquaredError()
-    mae = MeanAbsoluteError()
-    mape = MeanAbsolutePercentageError()
+            # Convert predictions and true values back to original scale using the scalers
+            for i in range(len(src)):
+                scaler = scalers[scaler_idx]
+                scaler_idx += 1
+                trg_original = scaler.inverse_transform(trg[i].numpy().reshape(-1, trg.shape[-1]))
+                output_original = scaler.inverse_transform(output[i].numpy().reshape(-1, output.shape[-1]))
 
-    rmse.update_state(true_values, predicted_values)
-    mae.update_state(true_values, predicted_values)
-    mape.update_state(true_values, predicted_values)
+                true_values.extend(trg_original)
+                predicted_values.extend(output_original)
 
-    return rmse.result().numpy(), mae.result().numpy(), mape.result().numpy()
+    mse = mean_squared_error(true_values, predicted_values)
+    rmse = np.sqrt(mse)
+    mae = mean_absolute_error(true_values, predicted_values)
+    mape = np.mean(np.abs((np.array(true_values) - np.array(predicted_values)) / (np.array(true_values) + epsilon))) * 100
+
+    return mse, rmse, mae, mape
+
+# def evaluate_model(model, test_data_loader, device):
+#     model.eval()
+#     true_values = []
+#     predicted_values = []
+#     for src, trg, src_mask, tgt_mask, in test_data_loader:
+#         with tf.device(device):
+#             output = model.call(src, trg, src_mask, tgt_mask, training=False)
+#             true_values.extend(trg.numpy().flatten())
+#             predicted_values.extend(output.numpy().flatten())
+#     mse = mean_squared_error(true_values, predicted_values)
+#     rmse = np.sqrt(mse)
+#     mae = mean_absolute_error(true_values, predicted_values)
+
+#     return mse, rmse, mae
     
 # def training_loop(model, train_data_loader, val_data_loader, optimizer, loss_fn, epochs, device, gradient_accumulation_steps=8):
 #     train_losses = []

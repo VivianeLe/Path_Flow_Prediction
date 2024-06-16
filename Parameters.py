@@ -1,5 +1,4 @@
 from tensorflow.keras.losses import MeanSquaredError, MeanAbsoluteError
-import math
 
 data_size = 7000
 class Params():
@@ -14,11 +13,11 @@ class Params():
     device = 'gpu'
     input_dim = 7
     output_dim = 3
-    d_model = 48
+    d_model = 60
     heads = 6
-    N = 4 # number of encoder/decoder layer
-    epochs = 100
+    N = 2 # number of encoder/decoder layer
+    epochs = 40
     lr = 0.002
     dropout = 0.5
-    # loss_fn = MeanSquaredError()
-    loss_fn = MeanAbsoluteError()
+    loss_fn = MeanSquaredError()
+    # loss_fn = MeanAbsoluteError()

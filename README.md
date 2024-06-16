@@ -9,4 +9,6 @@ Y mask: 625, 1
 Ver 4: 
 Apply mask in self-define MHA 
 Normalize Y before training, apply sigmoid activate function
+Run well with scaled output 
+Apply mask on predicted output to reduce error when evaluate 
 

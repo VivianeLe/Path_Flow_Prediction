@@ -21,11 +21,13 @@ def path_encoder():
     path_set_dict = {v: k for k, v in enumerate(unique_values_set, start=1)}
     return path_set_dict
 
-def normalize(tensor):
+def normalize(tensor, return_scaler=False):
     tensorY = tensor.numpy()
     scaler = MinMaxScaler()
     tensorY = scaler.fit_transform(tensorY)
     tensorY = tf.convert_to_tensor(tensorY, dtype=tf.float32)
+    if return_scaler:
+        return tensorY, scaler
     return tensorY
 
 def get_Link_Path_adj(net, path_encoded):
@@ -137,7 +139,7 @@ def reduce_dimensionality(X, n_components):
     X_pca_tf = tf.convert_to_tensor(X_pca, dtype=tf.float32)
     return X_pca_tf
 
-def generate_xy(file_name, unique_set):
+def generate_xy(file_name, unique_set, test_set=None):
     with open(file_name, "rb") as file:
         stat = pickle.load(file)
     
@@ -163,7 +165,9 @@ def generate_xy(file_name, unique_set):
     # Get Y
     Y = get_flowTensor(demand, path_flows, nodes)
     Y_mask = create_mask(Y)
-    Y = normalize(Y)
+    Y, scaler = normalize(Y, return_scaler=True)
+    if test_set:
+        return X, Y, X_mask, Y_mask, scaler
     return X, Y, X_mask, Y_mask
 
 def plot_loss(train_loss, val_loss, epochs, learning_rate, train_time, N, d_model):
