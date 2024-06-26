@@ -2,7 +2,7 @@ import numpy as np
 import pickle
 import tensorflow as tf
 from tqdm.notebook import tqdm
-import matplotlib.pyplot as plt 
+import matplotlib.pyplot as plt
 from sklearn.preprocessing import MinMaxScaler
 from sklearn.decomposition import PCA
 
@@ -41,7 +41,7 @@ def get_Link_Path_adj(net, path_encoded):
     indices = tf.constant(indices, dtype=tf.int32)
     updates = tf.constant(updates, dtype=tf.float32)
     link_path = tf.tensor_scatter_nd_update(link_path, indices, updates)
-    
+
     return link_path
 
 def create_matrix(data, nodes):
@@ -142,7 +142,7 @@ def reduce_dimensionality(X, n_components):
 def generate_xy(file_name, unique_set, test_set=None):
     with open(file_name, "rb") as file:
         stat = pickle.load(file)
-    
+
     path_links = stat["data"]["paths_link"]
     demand = stat["data"]["demand"]
     path_flows = stat["path_flow"]
@@ -172,23 +172,23 @@ def generate_xy(file_name, unique_set, test_set=None):
 
 def plot_loss(train_loss, val_loss, epochs, learning_rate, train_time, N, d_model):
     plt.figure(figsize=(12, 6))
-    plt.plot(range(1, epochs+1), train_loss, label='Training Loss')
-    plt.plot(range(1, epochs+1), val_loss, label='Validation Loss')
+    train_loss = train_loss[0:100]
+    val_loss = val_loss[0:100]
+    plt.plot(range(1, 101), train_loss, label='Training Loss')
+    plt.plot(range(1, 101), val_loss, label='Validating Loss')
     plt.xlabel('Epoch')
     plt.ylabel('Loss')
     plt.title('Training and Validating Loss')
     plt.legend()
     plt.grid(True)
-    plt.text(0.82, 0.75,
-              f'Learning Rate: {learning_rate}\n'
-                f'Training Time: {train_time/60:.2f}m\n'
-                f'Layers number: {N}\n'
-                f'D_model: {d_model}',
-            #   horizontalalignment='center', 
-            #   verticalalignment='center', 
-              transform=plt.gca().transAxes, 
-              fontsize=10
-              )
+    # plt.text(0.82, 0.75,
+    #           f'Learning Rate: {learning_rate}\n'
+    #             f'Training Time: {train_time/60:.2f}m\n'
+    #             f'Layers number: {N}\n'
+    #             f'D_model: {d_model}',
+    #           transform=plt.gca().transAxes,
+    #           fontsize=10
+    #           )
 
     plt.show()
 

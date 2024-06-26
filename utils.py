@@ -1,9 +1,11 @@
+from tkinter import NE
 import gurobipy as gp
 from gurobipy import GRB
 import pandas as pd
 import numpy as np
 import networkx as nx
 from itertools import chain
+from itertools import islice
 import random
 import pickle
 import time
@@ -12,8 +14,6 @@ import torch.nn as nn
 import torch.utils.data as data
 from tqdm.notebook import tqdm
 from sklearn.metrics import mean_squared_error
-
-
 
 def readNet(fileN) : 
     net = pd.read_csv(fileN,delimiter='\t',skiprows=8)
@@ -39,7 +39,6 @@ def readNet(fileN) :
         i = i + 1
     return net, nodes, links, cap, t0, alpha, beta, lengths
 
-# Get origin, destination from OD matrix
 def get_origDest(OD_demand) : 
     orig = []
     dest = []
@@ -54,6 +53,9 @@ def get_origDest(OD_demand) :
 
 def k_shortest_paths(G, source, target, k):
     try : 
+    # D = nx.shortest_simple_paths(G, source, target, weight="free_flow_time")
+    # for counter, path in enumerate(D):
+    #     print(path)
         paths = list(islice(nx.shortest_simple_paths(G, source, target, weight="free_flow_time"), k))
     except : 
         paths = []
@@ -126,13 +128,17 @@ def find_paths_new(network, OD_Matrix,kk) :
 
 
 def find_paths(network, OD_Matrix,k) :
+    # print(network)
     netG = nx.from_pandas_edgelist(network,source='init_node',target='term_node',edge_attr='free_flow_time',create_using=nx.DiGraph())
+    # print("NetG: ", netG)
+    # nx.draw(netG)
     paths = {}
     paths_N = {}
     for key in OD_Matrix.keys():
         paths_OD = []
         o,d = key[0],key[1]
         try : 
+            # print(k)
             p = k_shortest_paths(netG,o,d,k)
             paths_OD = transform_paths(network, p)
             paths[(o,d)]=paths_OD
@@ -251,7 +257,6 @@ def get_fullOD_pairs(dim1, dim2) :
                 OD_pairs.append((i,j))
     return OD_pairs
 
-# Combine OD matrix from many files into 1 
 def fuse_stats(dict1, dict2) : 
     for k,v in dict2.items() :
         if k not in dict1.keys() :
@@ -263,6 +268,7 @@ def fuse_stats(dict1, dict2) :
     return dict1
 
 def get_data(Network, Nodes, links, cap, fft, alpha, beta, lengths, OD_mat ) : 
+    # print(Network)
     num_paths = 3
     O,D = get_origDest(OD_mat)
     paths, paths_N = find_paths(Network, OD_mat, num_paths)
@@ -289,7 +295,6 @@ def get_data(Network, Nodes, links, cap, fft, alpha, beta, lengths, OD_mat ) :
         'approx':segments,'eta':eta,'paths_link':paths, 'paths_node':paths_N, 'delta':delta,'alpha':alpha, 'Adjacency_matrix' : Adj}
     return data, Q, OD, O_D,n
 
-# Function to find path flows and link flows at UE conditions
 def TA_UE(data, n, OD, Q):
     model = gp.Model("UE")
     model.setParam("OutputFlag", 0)
@@ -300,40 +305,29 @@ def TA_UE(data, n, OD, Q):
     eta = data['eta']
     alpha = data['alpha']
     beta = data['beta']
-    #OD_demand = data['demand']
-    #paths = data['paths_link']
-    #paths_N = data['paths_node']
     sigma = data['delta']
     cap = data['capacity']
     segments_p = segments.difference({0})
  
-    
-    x = [model.addVar(vtype=GRB.CONTINUOUS) for j in range(a)]
-    f = [ [model.addVar(vtype=GRB.CONTINUOUS) for i in range(n[k])] for k in range(OD)]
-    ll = [ [model.addVar(vtype=GRB.CONTINUOUS) for l in segments] for i in range(a)]
-    lr = [ [model.addVar(vtype=GRB.CONTINUOUS) for l in segments] for i in range(a)]
-    #t = [model.addVar(vtype=GRB.CONTINUOUS) for j in range(a)]
+    # x = [model.addVar(vtype=GRB.CONTINUOUS) for j in range(a)]
+    # f = [ [model.addVar(vtype=GRB.CONTINUOUS) for i in range(n[k])] for k in range(OD)]
+
+    x = [model.addVar(vtype=GRB.INTEGER, name=f"x_{j}") for j in range(a)]
+    f = [[model.addVar(vtype=GRB.INTEGER, name=f"f_{k}_{i}") for i in range(n[k])] for k in range(OD)]
 
     for i in range(a):
-        #model.addConstr(t[i] == t0[i]*(1+(beta[i]/cap[i]**alpha[i])*sum(ll[i][v]*eta[i][v-1]**alpha[i] + lr[i][v]*eta[i][v]**alpha[i] for v in segments_p)))
         model.addConstr(x[i] == sum( sum(f[k][p]*sigma[k][p][i] for p in range(n[k])) for k in range(OD)), "link-path%d" %i)
-        #model.addConstr(x[i] == sum(ll[i][v]*eta[i][v-1] + lr[i][v]*eta[i][v] for v in segments_p), "Approx1%d" %i)
-        model.addConstr(sum(ll[i][v] + lr[i][v] for v in segments_p) == 1, "Approx2%d" %i)
-        model.addConstr(x[i] >= 0, "integrality_x%d" %i)  
-        for ss in segments:
-            model.addConstr(ll[i][ss] >= 0, "integrality_ll%d%d" %(i,ss))
-            model.addConstr(lr[i][ss] >= 0, "integrality_lr%d%d" %(i,ss))
+        model.addConstr(x[i] >= 0, "integrality_x%d" %i)
 
     for k in range(OD) :
         model.addConstr( sum(f[k][p] for p in range(n[k])) == Q[k] , "FConservation%d" %k ) 
         for p in range(n[k]) : 
             model.addConstr(f[k][p] >= 0, "integrality%d%d" %(k,p))
-
     
-    Z = sum( t0[i]*(x[i]+1/(alpha[i]+1)*beta[i]/(cap[i]**alpha[i])*
-                    sum(eta[i][v-1]**(alpha[i]+1)*ll[i][v]+eta[i][v]**(alpha[i]+1)*lr[i][v] for v in segments_p))
-                    for i in range(a) )    
+    Z = sum(t0[i]*x[i] + 1/2 * t0[i] * beta[i] / (cap[i]**1) * (x[i]**2)
+                    for i in range(a))
 
+    # Z = gp.quicksum(t0[i] * x[i] for i in range(a))
 
     model.setObjective(Z, GRB.MINIMIZE)
     t1 = time.time()
@@ -341,25 +335,71 @@ def TA_UE(data, n, OD, Q):
     t2 = time.time()
     print('model solved in:',t2-t1)
     
-    flows =  [ [ f[k][p].X  for p in range(n[k])] for k in range(OD)]
-    linkss = [ x[i].X   for i in range(a)]
+    flows =  [[int(f[k][p].X) for p in range(n[k])] for k in range(OD)]
+    linkss = [int(x[i].X) for i in range(a)]
 
     return flows, linkss, model.Status, t2-t1
 
+# def TA_UE(data, n, OD, Q):
+#     model = gp.Model("UE")
+#     model.setParam("OutputFlag", 0)
 
-"""
-    This function is to convert a dictionary to a tensor, exp OD demand dictionary with n nodes
-    First create a zero matrix with size = node x node (25x25)
-    Then, for each OD pair, we update the matrix with the demand value
-    matrix index = node index - 1 (because node index start from 1)
-    Finally convert matrix to a tensor type float (default)
-"""
-def convert_DictToTensor(OD_demand, nodes) :
+#     a = data['links']
+#     t0 = data['fftt']
+#     alpha = data['alpha']
+#     beta = data['beta']
+#     sigma = data['delta']
+#     cap = data['capacity']
+ 
+#     x = [model.addVar(vtype=GRB.CONTINUOUS, name=f"x_{j}") for j in range(a)]
+#     f = [[model.addVar(vtype=GRB.CONTINUOUS, name=f"f_{k}_{i}") for i in range(n[k])] for k in range(OD)]
+    
+#     # Auxiliary variables for higher-order powers
+#     x_pow2 = [model.addVar(vtype=GRB.CONTINUOUS, name=f"x_pow2_{j}") for j in range(a)]
+#     x_pow3 = [model.addVar(vtype=GRB.CONTINUOUS, name=f"x_pow3_{j}") for j in range(a)]
+#     x_pow4 = [model.addVar(vtype=GRB.CONTINUOUS, name=f"x_pow4_{j}") for j in range(a)]
+#     x_pow5 = [model.addVar(vtype=GRB.CONTINUOUS, name=f"x_pow5_{j}") for j in range(a)]
+
+#     # Constraints
+#     for i in range(a):
+#         model.addConstr(x[i] == sum(sum(f[k][p] * sigma[k][p][i] for p in range(n[k])) for k in range(OD)), f"link_path_{i}")
+#         model.addConstr(x[i] >= 0, f"integrality_x_{i}")
+
+#         # Define higher-order power constraints
+#         model.addConstr(x_pow2[i] == x[i] * x[i], f"x_pow2_{i}")
+#         model.addConstr(x_pow3[i] == x_pow2[i] * x[i], f"x_pow3_{i}")
+#         model.addConstr(x_pow4[i] == x_pow3[i] * x[i], f"x_pow4_{i}")
+#         model.addConstr(x_pow5[i] == x_pow4[i] * x[i], f"x_pow5_{i}")
+
+#     for k in range(OD):
+#         model.addConstr(sum(f[k][p] for p in range(n[k])) == Q[k], f"FConservation_{k}")
+#         for p in range(n[k]):
+#             model.addConstr(f[k][p] >= 0, f"integrality_{k}_{p}")
+    
+#     Z = sum(t0[i] * x[i] + 1/5 * t0[i] * beta[i] * x_pow5[i] / (cap[i]**4) for i in range(a))
+
+#     model.setObjective(Z, GRB.MINIMIZE)
+
+#     t1 = time.time()
+#     model.optimize()
+#     t2 = time.time()
+#     print('model solved in:', t2 - t1)
+    
+#     if model.Status == GRB.OPTIMAL:
+#         flows = [[int(f[k][p].X) for p in range(n[k])] for k in range(OD)]
+#         print(flows)
+#         linkss = [int(x[i].X) for i in range(a)]
+#         return flows, linkss, model.Status, t2 - t1
+#     else:
+#         print("Optimization was not successful. Status:", model.Status)
+#         return None, None, model.Status, t2 - t1
+
+def convert_DemandtoTensor(OD_demand, nodes) :
     matrix = [ [0 for n in nodes] for n in nodes]
     for k,v in OD_demand.items() :
         o,d = k
-        matrix[o-1][d-1] = v
-    return torch.tensor([matrix], dtype=torch.float32)
+        matrix[o-1][d-1] = v     # matrix_index(node1) = 0 => node1 - 1 
+    return  torch.tensor([matrix], dtype=torch.float32)
 
 def getLinks_embedding(data) :
     links = []
@@ -375,7 +415,7 @@ def getLinks_embedding(data) :
 
 def getOutputEncoding(dim1, dim2, max_num_paths, OD_demand, path_flows) : 
     Full_OD_pairs = get_fullOD_pairs(dim1, dim2)
-    output_size = len(Full_OD_pairs)*max_num_paths # 1155
+    output_size = len(Full_OD_pairs)*max_num_paths
     output_tensor = torch.zeros([1, output_size], dtype=torch.float32)
     i = 0
     for k in OD_demand.keys() :
@@ -388,15 +428,6 @@ def getOutputEncoding(dim1, dim2, max_num_paths, OD_demand, path_flows) :
         i += 1
     return output_tensor
 
-def getOutputTensor(data, od_demand, nodes):
-    # Get index of path used (flow != 0)
-    used_path_index = [i+1 for sublist in data for i, val in enumerate(sublist) if val != 0]
-    # Map OD pair with the path used index list
-    used_path_dict = {key: indices for key, indices in zip(od_demand.keys(), used_path_index)}
-    # Create used path tensor (this is output of the model)
-    output = convert_DictToTensor(used_path_dict, nodes) # shape (1, 25, 25)
-    return output
-
 def create_datapoint(file_name,dim1, dim2, max_num_paths ) :
     file = open(file_name, "rb")
     stat = pickle.load(file)
@@ -404,13 +435,12 @@ def create_datapoint(file_name,dim1, dim2, max_num_paths ) :
     Nodes =  stat['data']['nodes']
     OD_demand = stat['data']['demand']
     
-    T_demand = convert_DictToTensor(OD_demand, Nodes)
+    T_demand = convert_DemandtoTensor(OD_demand, Nodes)
     T_Adj = torch.tensor( [stat['data']['Adjacency_matrix']], dtype=torch.float32 )  # tensor of adjacency matrix
     T_links = getLinks_embedding(stat['data'])
     T_path_flows = getOutputEncoding(dim1, dim2, max_num_paths, OD_demand, stat['path_flow']) # tensor of path flows
 
     # need to come up with a better way
-    # flatten the multi-dimention to 1D tensor
     T_demand = torch.flatten(T_demand, start_dim=1)
     T_Adj = torch.flatten(T_Adj, start_dim=1)
     T_links = torch.flatten(T_links, start_dim=1)
