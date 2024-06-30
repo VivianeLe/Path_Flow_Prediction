@@ -314,34 +314,6 @@ class Transformer(tf.keras.Model):
     def from_config(cls, config):
         return cls(**config)
 
-def evaluate_model_withScaler(model, test_data_loader, scalers, device):
-    model.eval()
-    true_values = []
-    predicted_values = []
-    scaler_idx = 0
-    for batch in test_data_loader:
-        src, trg, src_mask, tgt_mask = batch
-        with tf.device(device):
-            output = model(src, trg, src_mask, tgt_mask, training=False)
-            tgt_mask = tf.cast(tgt_mask, dtype=output.dtype)
-            output = output * tgt_mask
-
-            for i in range(len(src)):
-                scaler = scalers[scaler_idx]
-                scaler_idx += 1
-                trg_original = scaler.inverse_transform(trg[i].numpy().reshape(-1, trg.shape[-1]))
-                output_original = scaler.inverse_transform(output[i].numpy().reshape(-1, output.shape[-1]))
-
-                true_values.extend(trg_original)
-                predicted_values.extend(output_original)
-
-    mse = mean_squared_error(true_values, predicted_values)
-    rmse = np.sqrt(mse)
-    mae = mean_absolute_error(true_values, predicted_values)
-    r2 = r2_score(true_values, predicted_values)
-
-    return mse, rmse, mae, r2
-
 # def evaluate_model(model, test_data_loader, device, epsilon=1):
 #     model.eval()
 #     true_values = []
