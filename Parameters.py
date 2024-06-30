@@ -3,7 +3,7 @@ from tensorflow.keras.losses import MeanSquaredError, MeanAbsoluteError
 data_size = 2000
 class Params():
     """Data"""
-    base_path = 'Output/5by5_Data'
+    base_path = '../Output/5by5_Data'
 
     train_size = int(data_size * 0.8)
     val_size = int(data_size * 0.1)
