@@ -319,8 +319,7 @@ def evaluate_model_withScaler(model, test_data_loader, scalers, device):
     true_values = []
     predicted_values = []
     scaler_idx = 0
-    for batch in test_data_loader:
-        src, trg, src_mask, tgt_mask = batch
+    for src, trg, src_mask, tgt_mask in test_data_loader:
         with tf.device(device):
             output = model(src, trg, src_mask, tgt_mask, training=False)
             tgt_mask = tf.cast(tgt_mask, dtype=output.dtype)
@@ -328,19 +327,17 @@ def evaluate_model_withScaler(model, test_data_loader, scalers, device):
 
             for i in range(len(src)):
                 scaler = scalers[scaler_idx]
-                scaler_idx += 1
-                trg_original = scaler.inverse_transform(trg[i].numpy().reshape(-1, trg.shape[-1]))
-                output_original = scaler.inverse_transform(output[i].numpy().reshape(-1, output.shape[-1]))
+                scaler_idx +=1
+                trg_origin = scaler.inverse_transform(trg[i].numpy())
+                output_original = scaler.inverse_transform(output[i].numpy())
 
-                true_values.extend(trg_original)
-                predicted_values.extend(output_original)
+                pred_tensor = tf.convert_to_tensor(output_original, dtype=tf.float32)
+                trg_origin = tf.convert_to_tensor(trg_origin, dtype=tf.float32)
 
-    mse = mean_squared_error(true_values, predicted_values)
-    rmse = np.sqrt(mse)
-    mae = mean_absolute_error(true_values, predicted_values)
-    r2 = r2_score(true_values, predicted_values)
+                true_values.append(trg_origin)
+                predicted_values.append(pred_tensor)
 
-    return mse, rmse, mae, r2
+    return true_values, predicted_values
 
 # def evaluate_model(model, test_data_loader, device, epsilon=1):
 #     model.eval()

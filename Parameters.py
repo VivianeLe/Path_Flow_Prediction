@@ -13,11 +13,11 @@ class Params():
     device = 'gpu'
     input_dim = 7
     output_dim = 3
-    d_model = 512
+    d_model = 128
     heads = 8
-    E_layer = 8 # number of encoder layers
-    D_layer = 1 # number of decoder layers
-    epochs = 2
+    E_layer = 8
+    D_layer = 2
+    epochs = 100
     lr = 0.001
     dropout = 0.5 # for dense layer
     mha_dropout = 0.1 # multihead attention dropout
