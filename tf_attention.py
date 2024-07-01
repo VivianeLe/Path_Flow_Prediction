@@ -314,7 +314,7 @@ class Transformer(tf.keras.Model):
     def from_config(cls, config):
         return cls(**config)
 
-def evaluate_model_withScaler(model, test_data_loader, scalers, device):
+def predict_withScaler(model, test_data_loader, scalers, device):
     model.eval()
     true_values = []
     predicted_values = []
