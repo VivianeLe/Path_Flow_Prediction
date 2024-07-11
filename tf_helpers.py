@@ -216,7 +216,7 @@ def get_UE_link_cost(stat):
     link['link_flow'] = stat['link_flow']
     # Calculate link cost
     link['link_cost'] = round(link['free_flow_time']*\
-                            (1+link['b']*((link['link_flow']/link['capacity'])**1)), 2)
+                            (1+link['b']*((link['link_flow']/link['capacity'])**4)), 2)
     return link
 
 # Calculate path travel time for each od pair
@@ -259,28 +259,42 @@ def extract_flow(pred_tensor):
 
 def create_pred_df(tensor, stat):
   final_dict = extract_flow(tensor)  
-  flow_df = pd.DataFrame.from_dict(final_dict, orient='index', columns=['pred_f1', 'pred_f2', 'pred_f3']).reset_index()
+  flow_df = pd.DataFrame.from_dict(final_dict, orient='index', columns=['flow1', 'flow2', 'flow3']).reset_index()
   flow_df.rename(columns={'index': 'od'}, inplace=True)
   pred_df = get_origin_path(stat)[['od', 'demand', 'path1', 'path2', 'path3']]
   pred_df = pd.merge(pred_df, flow_df, how='left', on='od')
-  nan_val = pred_df['pred_f1'].isna().sum()
+  nan_val = pred_df['flow1'].isna().sum()
   nan_num = round(nan_val/len(stat['path_flow']),2)
   pred_df = pred_df.fillna(0)
   return pred_df, len(stat['path_flow']), len(final_dict), nan_num
 
 # Calculate link flow from pred path flow
+# def sum_pred_link_flow(pred_df, stat):
+#     pred_path_flow = pred_df[['pred_f1', 'pred_f2', 'pred_f3']].values.tolist()
+#     path_link = stat['data']['paths_link']
+
+#     pred_link_flow = extract_link_flow(path_link, pred_path_flow)
+#     pred_link_flow = pd.DataFrame.from_dict(pred_link_flow, orient='index', columns=['pred_link_flow']).sort_index(ascending=True).reset_index()
+#     pred_link_flow.rename(columns={'index': 'link_id'}, inplace=True)
+#     link = stat['data']['network'].copy()[['link_id', 'capacity', 'free_flow_time', 'b']]
+#     output = pd.merge(link, pred_link_flow, how='left', on='link_id')
+#     output = output.fillna(0)
+#     output['link_cost'] = round(output['free_flow_time']*\
+#                             (1+output['b']*((output['pred_link_flow']/output['capacity'])**1)), 2)
+#     return output
+
 def sum_pred_link_flow(pred_df, stat):
-    pred_path_flow = pred_df[['pred_f1', 'pred_f2', 'pred_f3']].values.tolist()
+    pred_path_flow = pred_df[['flow1', 'flow2', 'flow3']].values.tolist()
     path_link = stat['data']['paths_link']
 
     pred_link_flow = extract_link_flow(path_link, pred_path_flow)
-    pred_link_flow = pd.DataFrame.from_dict(pred_link_flow, orient='index', columns=['pred_link_flow']).sort_index(ascending=True).reset_index()
+    pred_link_flow = pd.DataFrame.from_dict(pred_link_flow, orient='index', columns=['link_flow']).sort_index(ascending=True).reset_index()
     pred_link_flow.rename(columns={'index': 'link_id'}, inplace=True)
     link = stat['data']['network'].copy()[['link_id', 'capacity', 'free_flow_time', 'b']]
     output = pd.merge(link, pred_link_flow, how='left', on='link_id')
     output = output.fillna(0)
     output['link_cost'] = round(output['free_flow_time']*\
-                            (1+output['b']*((output['pred_link_flow']/output['capacity'])**1)), 2)
+                            (1+output['b']*((output['link_flow']/output['capacity'])**4)), 2)
     return output
 
 def calculate_delay(pred_df, pred_link_flow):
@@ -289,17 +303,41 @@ def calculate_delay(pred_df, pred_link_flow):
     pred_df['path3_cost'] = pred_df['path3'].apply(lambda x: calculate_path_cost(x, pred_link_flow))
     pred_df['min_path_cost'] = pred_df[['path1_cost', 'path2_cost', 'path3_cost']].min(axis=1)
     pred_df['delay'] = (
-        pred_df['pred_f1'] * (pred_df['path1_cost'] - pred_df['min_path_cost']) +
-        pred_df['pred_f2'] * (pred_df['path2_cost'] - pred_df['min_path_cost']) +
-        pred_df['pred_f3'] * (pred_df['path3_cost'] - pred_df['min_path_cost'])
+        pred_df['flow1'] * (pred_df['path1_cost'] - pred_df['min_path_cost']) +
+        pred_df['flow2'] * (pred_df['path2_cost'] - pred_df['min_path_cost']) +
+        pred_df['flow3'] * (pred_df['path3_cost'] - pred_df['min_path_cost'])
     )
     avg_delay = pred_df['delay'].sum()/pred_df['demand'].sum()
     #return average delay in minutes
     return avg_delay*60
 
+def mean_path_cost(stat):
+    path_link_df = get_origin_path(stat)
+    UE_link = get_UE_link_cost(stat)
+
+    path_link_df['path1_cost'] = path_link_df['path1'].apply(lambda x: calculate_path_cost(x, UE_link))
+    path_link_df['path2_cost'] = path_link_df['path2'].apply(lambda x: calculate_path_cost(x, UE_link))
+    path_link_df['path3_cost'] = path_link_df['path3'].apply(lambda x: calculate_path_cost(x, UE_link))
+
+    flows = stat['path_flow']
+    path_link_df['flow1'] = [f[0] for f in flows]
+    path_link_df['flow2'] = [f[1] for f in flows]
+    path_link_df['flow3'] = [f[2] for f in flows]
+
+    avg_path_cost = (np.mean(path_link_df['path1_cost']) + np.mean(path_link_df['path2_cost']) + np.mean(path_link_df['path3_cost']))/3
+    return UE_link, path_link_df, avg_path_cost
+
 def single_avg_delay(pred_tensor, filename):
+    """ len_origin: number of OD pair in origin dataset
+    len_pred: number of OD pair in predicted value
+    nan_num: number of nan value 
+    """
     stat = read_file(filename)
     pred_df, len_origin, len_pred, nan_num = create_pred_df(pred_tensor, stat)
     pred_link_flow = sum_pred_link_flow(pred_df, stat)
-    avg_delay = calculate_delay(pred_df, pred_link_flow)
-    return avg_delay, len_origin, len_pred, nan_num
+    # Avg delay of predicted flow
+    pred_avg_delay = calculate_delay(pred_df, pred_link_flow)
+    # Avg delay of solution
+    UE_link, path_link_df, avg_path_cost = mean_path_cost(stat)
+    solution_avg_delay = calculate_delay(path_link_df, UE_link)
+    return pred_avg_delay, solution_avg_delay, len_origin, len_pred, nan_num

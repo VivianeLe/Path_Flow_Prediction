@@ -14,6 +14,7 @@ import torch.nn as nn
 import torch.utils.data as data
 from tqdm.notebook import tqdm
 from sklearn.metrics import mean_squared_error
+from scipy.optimize import minimize
 
 def readNet(fileN) : 
     net = pd.read_csv(fileN,delimiter='\t',skiprows=8)
@@ -183,8 +184,6 @@ def create_Adj(net_df, links, nodes) :
         for j in term['link_id'].values : 
             Adj[n-1][j] = 1
     return Adj
-            
-
 
 def create_delta(links, paths, od_matrix) :
     delta = [[[0 for i in range(links)] for p in paths[k]] for k in od_matrix.keys()]
@@ -201,15 +200,13 @@ def create_delta(links, paths, od_matrix) :
     return delta
 
 def generate_Random_OD_matrix(number_OD, OD_pairs) : 
-    
-    max_dem = 2000
-    
+    max_dem = 300
     Matrix = {}
     total_demand = 0
     k = 0
     while k < number_OD :
-        demand =  random.randint(50, max_dem)
-        od_id = random.randint(0, len(OD_pairs)-1)
+        demand =  random.randint(10, max_dem)
+        od_id = random.randint(0, len(OD_pairs)-201)
         o,d = OD_pairs[od_id]
         if (o,d) not in Matrix.keys() :
             Matrix[(o,d)] = demand
@@ -223,8 +220,8 @@ def generate_Random_ODs(dim1, dim2, nb_entries,origins, dest,OD_pairs,file_name)
     stats = {}
     k = 0            
     while k < nb_entries :   
-        print("nb_entries : ",k)
-        number_OD = random.randint(1, len(OD_pairs))
+        number_OD = random.randint(1, len(OD_pairs)-200)
+        print("nb_entries : ",k, ". Number OD: ", number_OD)
         
         M, TD = generate_Random_OD_matrix(number_OD, OD_pairs)
         
@@ -232,7 +229,7 @@ def generate_Random_ODs(dim1, dim2, nb_entries,origins, dest,OD_pairs,file_name)
             stats[number_OD] = []
             stats[number_OD].append(M)
             k = k +1
-            file = open("Data/{}by{}_Data{}_{}".format(dim1, dim2,k,file_name), "wb")
+            file = open("../Data/{}by{}_Data{}_{}".format(dim1, dim2,k,file_name), "wb")
             pickle.dump(M, file)
             file.close()
         else : 
@@ -267,7 +264,7 @@ def fuse_stats(dict1, dict2) :
                     dict1[k].append(vv)
     return dict1
 
-def get_data(Network, Nodes, links, cap, fft, alpha, beta, lengths, OD_mat ) : 
+def get_data(Network, Nodes, links, cap, fft, alpha, beta, lengths, OD_mat) : 
     # print(Network)
     num_paths = 3
     O,D = get_origDest(OD_mat)
@@ -308,26 +305,29 @@ def TA_UE(data, n, OD, Q):
     sigma = data['delta']
     cap = data['capacity']
     segments_p = segments.difference({0})
- 
-    # x = [model.addVar(vtype=GRB.CONTINUOUS) for j in range(a)]
-    # f = [ [model.addVar(vtype=GRB.CONTINUOUS) for i in range(n[k])] for k in range(OD)]
-
-    x = [model.addVar(vtype=GRB.INTEGER, name=f"x_{j}") for j in range(a)]
-    f = [[model.addVar(vtype=GRB.INTEGER, name=f"f_{k}_{i}") for i in range(n[k])] for k in range(OD)]
+    
+    x = [model.addVar(vtype=GRB.CONTINUOUS) for j in range(a)]
+    f = [ [model.addVar(vtype=GRB.CONTINUOUS) for i in range(n[k])] for k in range(OD)]
+    ll = [ [model.addVar(vtype=GRB.CONTINUOUS) for l in segments] for i in range(a)]
+    lr = [ [model.addVar(vtype=GRB.CONTINUOUS) for l in segments] for i in range(a)]
 
     for i in range(a):
         model.addConstr(x[i] == sum( sum(f[k][p]*sigma[k][p][i] for p in range(n[k])) for k in range(OD)), "link-path%d" %i)
-        model.addConstr(x[i] >= 0, "integrality_x%d" %i)
+        model.addConstr(x[i] == sum(ll[i][v]*eta[i][v-1] + lr[i][v]*eta[i][v] for v in segments_p), "Approx1%d" %i)
+        model.addConstr(sum(ll[i][v] + lr[i][v] for v in segments_p) == 1, "Approx2%d" %i)
+        model.addConstr(x[i] >= 0, "integrality_x%d" %i)  
+        for ss in segments:
+            model.addConstr(ll[i][ss] >= 0, "integrality_ll%d%d" %(i,ss))
+            model.addConstr(lr[i][ss] >= 0, "integrality_lr%d%d" %(i,ss))
 
     for k in range(OD) :
         model.addConstr( sum(f[k][p] for p in range(n[k])) == Q[k] , "FConservation%d" %k ) 
         for p in range(n[k]) : 
             model.addConstr(f[k][p] >= 0, "integrality%d%d" %(k,p))
     
-    Z = sum(t0[i]*x[i] + 1/2 * t0[i] * beta[i] / (cap[i]**1) * (x[i]**2)
-                    for i in range(a))
-
-    # Z = gp.quicksum(t0[i] * x[i] for i in range(a))
+    Z = sum( t0[i]*(x[i]+1/(alpha[i]+1)*beta[i]/(cap[i]**alpha[i])*
+                    sum(eta[i][v-1]**(alpha[i]+1)*ll[i][v]+eta[i][v]**(alpha[i]+1)*lr[i][v] for v in segments_p))
+                    for i in range(a) )    
 
     model.setObjective(Z, GRB.MINIMIZE)
     t1 = time.time()
@@ -335,64 +335,10 @@ def TA_UE(data, n, OD, Q):
     t2 = time.time()
     print('model solved in:',t2-t1)
     
-    flows =  [[int(f[k][p].X) for p in range(n[k])] for k in range(OD)]
-    linkss = [int(x[i].X) for i in range(a)]
+    flows =  [ [ f[k][p].X  for p in range(n[k])] for k in range(OD)]
+    linkss = [ x[i].X   for i in range(a)]
 
     return flows, linkss, model.Status, t2-t1
-
-# def TA_UE(data, n, OD, Q):
-#     model = gp.Model("UE")
-#     model.setParam("OutputFlag", 0)
-
-#     a = data['links']
-#     t0 = data['fftt']
-#     alpha = data['alpha']
-#     beta = data['beta']
-#     sigma = data['delta']
-#     cap = data['capacity']
- 
-#     x = [model.addVar(vtype=GRB.CONTINUOUS, name=f"x_{j}") for j in range(a)]
-#     f = [[model.addVar(vtype=GRB.CONTINUOUS, name=f"f_{k}_{i}") for i in range(n[k])] for k in range(OD)]
-    
-#     # Auxiliary variables for higher-order powers
-#     x_pow2 = [model.addVar(vtype=GRB.CONTINUOUS, name=f"x_pow2_{j}") for j in range(a)]
-#     x_pow3 = [model.addVar(vtype=GRB.CONTINUOUS, name=f"x_pow3_{j}") for j in range(a)]
-#     x_pow4 = [model.addVar(vtype=GRB.CONTINUOUS, name=f"x_pow4_{j}") for j in range(a)]
-#     x_pow5 = [model.addVar(vtype=GRB.CONTINUOUS, name=f"x_pow5_{j}") for j in range(a)]
-
-#     # Constraints
-#     for i in range(a):
-#         model.addConstr(x[i] == sum(sum(f[k][p] * sigma[k][p][i] for p in range(n[k])) for k in range(OD)), f"link_path_{i}")
-#         model.addConstr(x[i] >= 0, f"integrality_x_{i}")
-
-#         # Define higher-order power constraints
-#         model.addConstr(x_pow2[i] == x[i] * x[i], f"x_pow2_{i}")
-#         model.addConstr(x_pow3[i] == x_pow2[i] * x[i], f"x_pow3_{i}")
-#         model.addConstr(x_pow4[i] == x_pow3[i] * x[i], f"x_pow4_{i}")
-#         model.addConstr(x_pow5[i] == x_pow4[i] * x[i], f"x_pow5_{i}")
-
-#     for k in range(OD):
-#         model.addConstr(sum(f[k][p] for p in range(n[k])) == Q[k], f"FConservation_{k}")
-#         for p in range(n[k]):
-#             model.addConstr(f[k][p] >= 0, f"integrality_{k}_{p}")
-    
-#     Z = sum(t0[i] * x[i] + 1/5 * t0[i] * beta[i] * x_pow5[i] / (cap[i]**4) for i in range(a))
-
-#     model.setObjective(Z, GRB.MINIMIZE)
-
-#     t1 = time.time()
-#     model.optimize()
-#     t2 = time.time()
-#     print('model solved in:', t2 - t1)
-    
-#     if model.Status == GRB.OPTIMAL:
-#         flows = [[int(f[k][p].X) for p in range(n[k])] for k in range(OD)]
-#         print(flows)
-#         linkss = [int(x[i].X) for i in range(a)]
-#         return flows, linkss, model.Status, t2 - t1
-#     else:
-#         print("Optimization was not successful. Status:", model.Status)
-#         return None, None, model.Status, t2 - t1
 
 def convert_DemandtoTensor(OD_demand, nodes) :
     matrix = [ [0 for n in nodes] for n in nodes]
