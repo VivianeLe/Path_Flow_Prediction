@@ -11,12 +11,12 @@ class Params():
     batch_size = 4
     gradient_accumulation_steps = 4
     device = 'gpu'
-    input_dim = 7
+    input_dim = 5
     output_dim = 3
     d_model = 512
     heads = 8
     E_layer = 8
-    D_layer = 2
+    D_layer = 1
     epochs = 100
     lr = 0.002
     dropout = 0.5 # for dense layer

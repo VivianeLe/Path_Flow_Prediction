@@ -135,7 +135,7 @@ class Encoder(tfl.Layer):
     def from_config(cls, config):
         return cls(**config)
 
-class DecoderLayer(tf.keras.layers.Layer):
+class DecoderLayer(tfl.Layer):
     def __init__(self, output_dim, d_model, heads, dropout, l2_reg):
         super().__init__()
         self.mha1 = MultiHeadAttention(output_dim, d_model, heads, dropout)

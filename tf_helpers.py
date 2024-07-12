@@ -131,17 +131,29 @@ def get_flowTensor(demand, path_flows, nodes, test_set=None):
 
 def create_mask(tensor):
     mask = tf.expand_dims(tf.sign(tf.reduce_sum(tf.abs(tensor), axis=-1)),-1) # create mask for row
-    # mask = tf.expand_dims(tf.sign(tf.reduce_sum(tf.abs(tensor), axis=0)),0) # create mask for column
     return mask
 
-# def reduce_dimensionality(X, n_components):
-#     X_np = X.numpy()
-#     pca = PCA(n_components=n_components)
-#     X_pca = pca.fit_transform(X_np)
+def reduce_dimensionality(X, n_components=5):
+    X_np = X.numpy()
+    pca = PCA(n_components=n_components)
+    X_pca = pca.fit_transform(X_np)
 
-#     # Convert back to TensorFlow tensor
-#     X_pca_tf = tf.convert_to_tensor(X_pca, dtype=tf.float32)
-#     return X_pca_tf
+    # Convert back to TensorFlow tensor
+    X_pca_tf = tf.convert_to_tensor(X_pca, dtype=tf.float32)
+    return X_pca_tf
+
+def get_X(Graph, OD_demand, Path_tensor, Adj):
+    X = [Graph, OD_demand, Path_tensor, Adj]
+    max_size = max([x.shape[0] for x in X])
+
+    Graph = tf.pad(Graph, paddings=[[0, max_size - Graph.shape[0]], [0, 0]])
+    OD_demand = tf.pad(OD_demand, paddings=[[0, max_size - OD_demand.shape[0]], [0, 0]])
+    Path_tensor = tf.pad(Path_tensor, paddings=[[0, max_size - Path_tensor.shape[0]], [0, 0]])
+    Adj = tf.pad(Adj, paddings=[[0, max_size - Adj.shape[0]], [0, 0]])
+
+    X = tf.concat([tf.cast(Graph, tf.float32), tf.cast(OD_demand, tf.float32),
+                    tf.cast(Path_tensor, tf.float32), tf.cast(Adj, tf.float32)], axis=1)
+    return X
 
 def generate_xy(file_name, test_set=None):
     with open(file_name, "rb") as file:
@@ -157,15 +169,17 @@ def generate_xy(file_name, test_set=None):
     # Get X
     Graph = get_graphTensor(net, nodes) # (625, 3)
     OD_demand = get_demandTensor(demand, nodes) # (625,1)
-    # Pair_path = get_pair_path_tensor(unique_set,path_links,nodes) # (625, 1155)
     Path_set = get_pathTensor(path_links, nodes) # (625, 3)
-    X = tf.concat([tf.cast(Graph, tf.float32),
-                   tf.cast(OD_demand, tf.float32),
-                   tf.cast(Path_set, tf.float32)
-                #    tf.cast(Pair_path, tf.float32)
-                   ], axis=1) # (625,1162)
+    Adj = get_Link_Path_adj(net)
+    # X = tf.concat([tf.cast(Graph, tf.float32),
+    #                tf.cast(OD_demand, tf.float32),
+    #                tf.cast(Path_set, tf.float32)
+    #                ], axis=1)
+    X = get_X(Graph, OD_demand, Path_set, Adj) # 625x1162
     X_mask = create_mask(X)
     X = normalize(X)
+    X = reduce_dimensionality(X)
+    # X = tf.where(X == 0, tf.constant(-2**32+1, dtype=X.dtype), X)
 
     # Get Y
     Y = get_flowTensor(demand, path_flows, nodes)
