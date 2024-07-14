@@ -16,6 +16,33 @@ from tqdm.notebook import tqdm
 from sklearn.metrics import mean_squared_error
 from scipy.optimize import minimize
 
+def create_Grid_net(dim1, dim2):
+    # Create a grid graph
+    G = nx.grid_2d_graph(dim1, dim2)
+    # Generate positions for the nodes
+    pos = {(x, y): (x, y) for x, y in G.nodes()}
+    return G, pos
+
+def convert_net_to_file(G, file_name, mapping):
+    with open(file_name, 'w') as file:
+        file.write("Node1,Node2\n")  # Write header
+        for edge in G.edges():
+            node1 = mapping[edge[0]]
+            node2 = mapping[edge[1]]
+            file.write(f"{node1},{node2}\n")
+
+def generate_gridNet(dim1, dim2, file_name, draw=True):
+    G, pos = create_Grid_net(dim1, dim2)
+    i=1
+    mapping = {}
+    for e in G.nodes:
+        mapping[e] = i
+        i +=1
+    convert_net_to_file(G, file_name, mapping)
+    if draw:
+        nx.draw_networkx(G, pos=pos, with_labels=True, labels=mapping, font_size=9, font_color='white')
+    return G, pos
+
 def readNet(fileN) : 
     net = pd.read_csv(fileN,delimiter='\t',skiprows=8)
     
@@ -60,6 +87,7 @@ def k_shortest_paths(G, source, target, k):
         paths = list(islice(nx.shortest_simple_paths(G, source, target, weight="free_flow_time"), k))
     except : 
         paths = []
+
     return paths
 
 def transform_paths(network, paths) : # transform node path to edge path

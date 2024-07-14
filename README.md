@@ -29,3 +29,13 @@ Không có mask (hoặc thử có mask), thay thế các giá trị = 0 trong in
 Nhân attention tensor với V => 25, d_model
 * Thử apply label encoder với mỗi path set của mỗi OD pair (mỗi set of 3 là 1 số)
 >>>>>>> origin/main
+
+Folder Generate_data includes:
+    - code to generate random OD matrix (4 files of OD matrix then combine them into 1 file)
+    - read the OD matrix and network file (.tntp) to find k shortest paths
+    - use Gurobipy to solve UE problem.
+
+Folder UE Solution includes:
+    - Output1: solution for network of full 25 nodes, 80 links
+    - Output2: solution for network of 25 nodes, 75 links (random remove 5 links)
+    - Output3: solution for network of 25 nodes, 70 links (random remove 10 links)
