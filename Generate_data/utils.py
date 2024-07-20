@@ -1,8 +1,6 @@
-from tkinter import NE
 import gurobipy as gp
 from gurobipy import GRB
 import pandas as pd
-import numpy as np
 import networkx as nx
 from itertools import chain
 from itertools import islice
@@ -10,38 +8,82 @@ import random
 import pickle
 import time
 import torch
-import torch.nn as nn
-import torch.utils.data as data
-from tqdm.notebook import tqdm
-from sklearn.metrics import mean_squared_error
-from scipy.optimize import minimize
+import numpy as np
 
-def create_Grid_net(dim1, dim2):
-    # Create a grid graph
-    G = nx.grid_2d_graph(dim1, dim2)
-    # Generate positions for the nodes
-    pos = {(x, y): (x, y) for x, y in G.nodes()}
-    return G, pos
-
-def convert_net_to_file(G, file_name, mapping):
-    with open(file_name, 'w') as file:
-        file.write("Node1,Node2\n")  # Write header
-        for edge in G.edges():
-            node1 = mapping[edge[0]]
-            node2 = mapping[edge[1]]
-            file.write(f"{node1},{node2}\n")
-
-def generate_gridNet(dim1, dim2, file_name, draw=True):
-    G, pos = create_Grid_net(dim1, dim2)
-    i=1
+def generate_gridNet(dim1, dim2, file_name, draw=True, target_links=80):
+    G, pos = create_Grid_Net(dim1, dim2)
+    G = reduce_links(G, target_links)
+    i = 1
     mapping = {}
     for e in G.nodes:
         mapping[e] = i
-        i +=1
+        i = i + 1
     convert_net_to_file(G, file_name, mapping)
     if draw:
         nx.draw_networkx(G, pos=pos, with_labels=True, labels=mapping, font_size=9, font_color='white')
     return G, pos
+
+def create_Grid_Net(dim1, dim2):
+    G = nx.DiGraph()
+    for n1 in range(dim1):
+        for n2 in range(dim2):
+            G.add_node((n1, n2))
+    for n1 in range(dim1):
+        for n2 in range(dim2):
+            if n2 + 1 < dim2:
+                G.add_edge((n1, n2), (n1, n2 + 1))
+                G.add_edge((n1, n2 + 1), (n1, n2))  # bidirectional
+            if n1 + 1 < dim1:
+                G.add_edge((n1, n2), (n1 + 1, n2))
+                G.add_edge((n1 + 1, n2), (n1, n2))  # bidirectional
+
+    pos = {(x, y): (y, -x) for x, y in G.nodes()}  # for the drawing
+    return G, pos
+
+def reduce_links(G, target_links):
+    current_links = len(G.edges)
+    if target_links >= current_links:
+        return G  # No reduction needed
+    
+    edges = list(G.edges)
+    random.shuffle(edges)
+    edges_to_remove = edges[:current_links - target_links]
+    
+    for edge in edges_to_remove:
+        G.remove_edge(*edge)
+        
+    return G
+
+def convert_net_to_file(net, file_name,labels_map) : 
+    with open(file_name, 'w') as f:
+        f.write("<NUMBER OF ZONES> "+str(0))
+        f.write("\n")
+        f.write("<NUMBER OF NODES> "+str(len(net.nodes)))
+        f.write("\n")
+        f.write("<FIRST THRU NODE> 1")
+        f.write("\n")
+        f.write("<NUMBER OF LINKS> "+str(len(net.edges)))
+        f.write("\n")
+        f.write("<ORIGINAL HEADER>~ \tInit node \tTerm node \tCapacity \tLength \tFree Flow Time \tB \tPower \tSpeed limit \tToll \tType \t;")
+        f.write("\n")
+        f.write("<END OF METADATA>")
+        f.write("\n")
+        f.write("\n")
+        f.write("\n")
+        f.write("~ \tlink_id\tinit_node\tterm_node\tcapacity\tlength\tfree_flow_time\tb\tpower\tspeed\ttoll\tlink_type\t;")
+        f.write("\n")
+        
+        link_id = 0
+        for n1,n2 in net.edges :
+            n1_id = labels_map[n1]
+            n2_id = labels_map[n2]
+            cap = np.random.randint(1000, 2001)
+            leng = np.random.randint(20, 41)
+            fft = round(np.random.uniform(0.5, 1.0),1)
+            speed = np.random.choice([60, 70, 80, 90, 100])
+            f.write("\t" + str(link_id)+"\t"+str(n1_id)+"\t"+str(n2_id)+"\t"+str(cap)+"\t"+str(leng)+"\t"+str(fft)+"\t0.15\t4\t"+str(speed)+"\t0\t0\t;")
+            f.write("\n")
+            link_id += 1
 
 def readNet(fileN) : 
     net = pd.read_csv(fileN,delimiter='\t',skiprows=8)
@@ -55,7 +97,7 @@ def readNet(fileN) :
     beta = [0 for i in range(links)]
     lengths = [0 for i in range(links)]
     
-    net['link_id'] = net.index
+    # net['link_id'] = net.index
     
     i = 0
     for capacityi,fftti,alphai,betai,leni in zip(net['capacity'],net['free_flow_time'],net['power'],net['b'], net['length']):
@@ -101,59 +143,59 @@ def transform_paths(network, paths) : # transform node path to edge path
     return paths_OD
 
 
-def find_paths_new(network, OD_Matrix,kk) :
-    netG = nx.from_pandas_edgelist(network,source='init_node',target='term_node',edge_attr='free_flow_time',create_using=nx.DiGraph())
-    paths = {}
-    paths_N = {}
-    dict_o = {}
-    dict_d = {}
-    for key in OD_Matrix.keys():
-        paths_OD_N = []
-        o,d = key[0],key[1]
-        if o in dict_o.keys() :
-            for v1, v2 in dict_o[o].items() :
-                if d<v1 :
-                    for v3 in v2 :
-                        if d in v3 :
-                            p = v3[0:v3.index(d)+1]
-                            if p not in paths_OD_N :
-                                paths_OD_N.append(p)
-                            if len(paths_OD_N) == kk :
-                                paths[(o,d)]=transform_paths(network, paths_OD_N)
-                                paths_N[(o,d)]=paths_OD_N
-                                dict_o[o].update({d:paths_OD_N})
-                                dict_d[d]={o:paths_OD_N}
-                                break
-                if len(paths_OD_N) == kk :
-                        break
-        if d in dict_d.keys() :
-            for v1, v2 in dict_d[d].items() :
-                if o>v1 :
-                    for v3 in v2 :
-                        if o in v3 :
-                            p = v3[v3.index(d):len(v3)+1]
-                            if p not in paths_OD_N :
-                                paths_OD_N.append(p)
-                            if len(paths_OD_N) == kk :
-                                paths[(o,d)]=transform_paths(network, paths_OD_N)
-                                paths_N[(o,d)]=paths_OD_N
-                                dict_o[o]={d:paths_OD_N}
-                                dict_d[d].update({o:paths_OD_N})
-                                break
-                if len(paths_OD_N) == kk :
-                        break
-        if (o,d) not in paths.keys() : 
-            try : 
-                p = k_shortest_paths(netG,o,d,kk)
-                paths[(o,d)]=transform_paths(network, p)
-                paths_N[(o,d)]=p
-                dict_o[o] = {d:p}
-                dict_d[d] = {o:p}
-            except :
-                paths[(o,d)] = []
-                paths_N[(o,d)]=[]
+# def find_paths_new(network, OD_Matrix,kk) :
+#     netG = nx.from_pandas_edgelist(network,source='init_node',target='term_node',edge_attr='free_flow_time',create_using=nx.DiGraph())
+#     paths = {}
+#     paths_N = {}
+#     dict_o = {}
+#     dict_d = {}
+#     for key in OD_Matrix.keys():
+#         paths_OD_N = []
+#         o,d = key[0],key[1]
+#         if o in dict_o.keys() :
+#             for v1, v2 in dict_o[o].items() :
+#                 if d<v1 :
+#                     for v3 in v2 :
+#                         if d in v3 :
+#                             p = v3[0:v3.index(d)+1]
+#                             if p not in paths_OD_N :
+#                                 paths_OD_N.append(p)
+#                             if len(paths_OD_N) == kk :
+#                                 paths[(o,d)]=transform_paths(network, paths_OD_N)
+#                                 paths_N[(o,d)]=paths_OD_N
+#                                 dict_o[o].update({d:paths_OD_N})
+#                                 dict_d[d]={o:paths_OD_N}
+#                                 break
+#                 if len(paths_OD_N) == kk :
+#                         break
+#         if d in dict_d.keys() :
+#             for v1, v2 in dict_d[d].items() :
+#                 if o>v1 :
+#                     for v3 in v2 :
+#                         if o in v3 :
+#                             p = v3[v3.index(d):len(v3)+1]
+#                             if p not in paths_OD_N :
+#                                 paths_OD_N.append(p)
+#                             if len(paths_OD_N) == kk :
+#                                 paths[(o,d)]=transform_paths(network, paths_OD_N)
+#                                 paths_N[(o,d)]=paths_OD_N
+#                                 dict_o[o]={d:paths_OD_N}
+#                                 dict_d[d].update({o:paths_OD_N})
+#                                 break
+#                 if len(paths_OD_N) == kk :
+#                         break
+#         if (o,d) not in paths.keys() : 
+#             try : 
+#                 p = k_shortest_paths(netG,o,d,kk)
+#                 paths[(o,d)]=transform_paths(network, p)
+#                 paths_N[(o,d)]=p
+#                 dict_o[o] = {d:p}
+#                 dict_d[d] = {o:p}
+#             except :
+#                 paths[(o,d)] = []
+#                 paths_N[(o,d)]=[]
     
-    return paths, paths_N
+#     return paths, paths_N
 
 
 def find_paths(network, OD_Matrix,k) :
@@ -201,8 +243,11 @@ def translate(nodes, OD_demand) :
     
     return Q, OD, O_D
 
-def create_Adj(net_df, links, nodes) : 
-    Adj = [ [0 for i in range(links)] for n in nodes]
+def create_Adj(net_df, links, nodes): 
+    # links: number of links in the network (80, 75, 70, 65)
+    # nodes: a list of all nodes (from 1 to 25)
+    # Create adj matrix shape 25x80 for all scenarios
+    Adj = [ [0 for i in range(76)] for n in nodes]
     for n in nodes :
         init = net_df[net_df['init_node']==n]
         for j in init['link_id'].values : 
@@ -242,6 +287,23 @@ def generate_Random_OD_matrix(number_OD, OD_pairs) :
             k = k + 1
     
     return Matrix, total_demand
+
+def generate_OD_demand(num_nodes, min_demand, max_demand):
+    od_demand = {}
+    num_pairs = random.randint(50, 200)
+    # Generate unique OD pairs
+    pairs = set()
+    while len(pairs) < num_pairs:
+        origin = random.randint(1, num_nodes)
+        destination = random.randint(1, num_nodes)
+        if origin != destination:  # Ensure origin is not equal to destination
+            pairs.add((origin, destination))
+
+    # Assign random demand values to each OD pair
+    for origin, destination in pairs:
+        demand = random.randint(min_demand, max_demand)
+        od_demand[(origin, destination)] = demand
+    return od_demand
 
 def generate_Random_ODs(dim1, dim2, nb_entries,origins, dest,OD_pairs,file_name) : 
     
