@@ -2,10 +2,13 @@ import numpy as np
 import pickle
 import tensorflow as tf
 from tqdm.notebook import tqdm
-from numba import jit
-import matplotlib.pyplot as plt 
-import plotly.graph_objects as go
-import plotly.offline as py
+import matplotlib.pyplot as plt
+from sklearn.preprocessing import MinMaxScaler
+from sklearn.decomposition import PCA
+import pandas as pd 
+from collections import defaultdict
+import random
+import seaborn as sns
 
 # Create dictionary of all unique paths
 def path_encoder():
@@ -183,4 +186,130 @@ def plot_loss_plotly(train_loss, val_loss, epochs, learning_rate, train_time):
             )
         ]
     )
-    py.plot(fig, filename='Training-and-Validation-Loss')
+    avg_delay = pred_df['delay'].sum()/pred_df['demand'].sum()
+    #return average delay in minutes
+    return pred_df, avg_delay
+
+def mean_path_cost(stat):
+    path_link_df = get_origin_path(stat)
+    UE_link = get_UE_link_cost(stat)
+
+    path_link_df['path1_cost'] = path_link_df['path1'].apply(lambda x: calculate_path_cost(x, UE_link))
+    path_link_df['path2_cost'] = path_link_df['path2'].apply(lambda x: calculate_path_cost(x, UE_link))
+    path_link_df['path3_cost'] = path_link_df['path3'].apply(lambda x: calculate_path_cost(x, UE_link))
+
+    flows = stat['path_flow']
+    p1, p2, p3 = [], [], []
+    for flow in flows:
+        path1 = path2 = path3 = 0
+        if len(flow) > 0:
+            path1 = flow[0]
+        if len(flow) > 1:
+            path2 = flow[1]
+        if len(flow) > 2:
+            path3 = flow[2]
+        
+        p1.append((path1 if path1 != 0 else 0))
+        p2.append((path2 if path2 != 0 else 0))
+        p3.append((path3 if path3 != 0 else 0))
+    path_link_df['flow1'] = p1
+    path_link_df['flow2'] = p2
+    path_link_df['flow3'] = p3
+
+    avg_path_cost = (np.mean(path_link_df['path1_cost']) + np.mean(path_link_df['path2_cost']) + np.mean(path_link_df['path3_cost']))/3
+    return UE_link, path_link_df, avg_path_cost
+
+def compare_link_flow(UE_link, pred_link_flow):
+    UE_link = UE_link[['link_id', 'link_flow']]
+    UE_link = UE_link.rename(columns={'link_flow': 'UE_flow'})
+    link_flow = pd.merge(pred_link_flow, UE_link, on='link_id', how='right')
+    link_flow = link_flow.drop(['capacity','free_flow_time', 'b', 'link_cost'], axis=1)
+    link_flow['abs_err'] = (link_flow['link_flow'] - link_flow['UE_flow']).abs()
+    link_flow['sqr_err'] = link_flow['abs_err']**2
+    return link_flow
+
+def get_all_path_flow(df):
+    path_df = pd.melt(df, value_vars=['path1', 'path2', 'path3'], var_name='path_type', value_name='path')
+    flow_df = pd.melt(df, value_vars=['flow1', 'flow2', 'flow3'], var_name='flow_type', value_name='flow')
+    result_df = pd.concat([path_df['path'], flow_df['flow']], axis=1)
+    return result_df
+
+def compare_path_flow(path_link_df, pred_df):
+    pred_path_flow = get_all_path_flow(pred_df)
+    UE_path_flow = get_all_path_flow(path_link_df)
+    path_flow = pd.merge(UE_path_flow, pred_path_flow, on='path', how='left')
+    path_flow = path_flow.rename(columns={'flow_x': 'UE_flow', 'flow_y': 'pred_flow'})
+    path_flow['abs_err'] = (path_flow['pred_flow'] - path_flow['UE_flow']).abs()
+    path_flow['sqr_err'] = path_flow['abs_err']**2
+    return path_flow
+
+def single_avg_delay(pred_tensor, filename):
+    """ len_origin: number of OD pair in origin dataset
+    len_pred: number of OD pair in predicted value
+    nan_num: number of nan value 
+    """
+    stat = read_file(filename)
+    pred_df, len_origin, len_pred, nan_num = create_pred_df(pred_tensor, stat)
+    pred_link_flow = sum_pred_link_flow(pred_df, stat)
+    # Avg delay of predicted flow
+    pred_df, pred_avg_delay = calculate_delay(pred_df, pred_link_flow)
+    # Avg delay of solution
+    UE_link, path_link_df, avg_path_cost = mean_path_cost(stat)
+    a, solution_avg_delay = calculate_delay(path_link_df, UE_link)
+
+    link_flow = compare_link_flow(UE_link, pred_link_flow)
+    path_flow = compare_path_flow(path_link_df, pred_df)
+    return [link_flow, path_flow],[pred_avg_delay, solution_avg_delay], [len_pred, len_origin], nan_num, avg_path_cost
+
+# def single_avg_delay(pred_tensor, filename):
+#     # This function applies for dataset where Y is encoded by percentage distribution
+#     stat = read_file(filename)
+#     pred_df, len_origin, len_pred, nan_num = create_pred_df(pred_tensor, stat)
+#     pred_df['flow1'] = pred_df['flow1']*pred_df['demand']
+#     pred_df['flow2'] = pred_df['flow2']*pred_df['demand']
+#     pred_df['flow3'] = pred_df['flow3']*pred_df['demand']
+#     pred_link_flow = sum_pred_link_flow(pred_df, stat)
+#     # Avg delay of predicted flow
+#     pred_df, pred_avg_delay = calculate_delay(pred_df, pred_link_flow)
+#     # Avg delay of solution
+#     UE_link, path_link_df, avg_path_cost = mean_path_cost(stat)
+#     a, solution_avg_delay = calculate_delay(path_link_df, UE_link)
+
+#     link_flow = compare_link_flow(UE_link, pred_link_flow)
+#     path_flow = compare_path_flow(path_link_df, pred_df)
+#     return [link_flow, path_flow],[pred_avg_delay, solution_avg_delay], [len_pred, len_origin], nan_num, avg_path_cost
+
+def plot_error(Link_flow, Path_flow):
+    Link_abs = [i for df in Link_flow for i in df['abs_err']]
+    Link_sqr = [i for df in Link_flow for i in df['sqr_err']]
+    Path_abs = [i for df in Path_flow for i in df['abs_err']]
+    Path_sqr = [i for df in Path_flow for i in df['sqr_err']]
+
+    plt.figure(figsize=(14, 12))
+    plt.subplot(2,2, 1)
+    sns.histplot(Link_abs, bins=100, kde=True)
+    plt.title('Histogram of absolute error of link flow')
+    plt.xlabel('Link flow absolute error')
+    plt.ylabel('Frequency')
+
+    plt.subplot(2,2, 2)
+    sns.histplot(Link_sqr, bins=100, kde=True)
+    plt.title('Histogram of square error of link flow')
+    plt.xlabel('Link flow square error')
+    plt.ylabel('Frequency')
+
+    plt.subplot(2,2, 3)
+    sns.histplot(Path_abs, bins=100, kde=True)
+    plt.ylim(0, 60000)
+    plt.title('Histogram of absolute error of path flow')
+    plt.xlabel('Path flow absolute error')
+    plt.ylabel('Frequency')
+
+    plt.subplot(2,2, 4)
+    sns.histplot(Path_sqr, bins=50, kde=True)
+    plt.ylim(0, 200000)
+    plt.title('Histogram of square error of path flow')
+    plt.xlabel('Path flow square error')
+    plt.ylabel('Frequency')
+
+    plt.show()
