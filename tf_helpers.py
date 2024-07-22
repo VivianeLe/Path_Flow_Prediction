@@ -10,13 +10,38 @@ from collections import defaultdict
 import random
 import seaborn as sns
 
-# Create dictionary of all unique paths
-def path_encoder():
+def load_files_from_folders(folders, max_files):
+    file_list = []
+    for folder in folders:
+        for i in range(max_files):
+            file = ''.join([folder,str(f'/5by5_Data{i}')])
+            file_list.append(file)
+    return file_list
+
+def read_file(filename):
+  with open(filename, "rb") as file:
+      stat = pickle.load(file)
+      file.close()
+  return stat
+
+def split_dataset(files, train_ratio, val_ratio):
+    random.shuffle(files)
+    
+    total_files = len(files)
+    train_size = int(total_files * train_ratio)
+    val_size = int(total_files * val_ratio)
+    
+    train_files = files[:train_size]
+    val_files = files[train_size:train_size + val_size]
+    test_files = files[train_size + val_size:]
+
+    return train_files, val_files, test_files
+
+# Need to load all files in dataset to get unique path dict
+def path_encoder(files):
     path_sample = []
-    for i in range(10):
-        file_name = f"Output/5by5_Data{i}"
-        with open(file_name, "rb") as file:
-            stat = pickle.load(file)
+    for file_name in files:
+        stat = read_file(file_name)
         path_sample.append(stat["data"]["paths_link"])
 
     all_path_link = [path_sample[i].values() for i in range(len(path_sample))]
@@ -24,22 +49,21 @@ def path_encoder():
     path_set_dict = {v: k for k, v in enumerate(unique_values_set, start=1)}
     return path_set_dict
 
-# Normalize tensor by Min-max scaling
-def normalize(tensor):
-    min_values = tf.reduce_min(tensor, axis=0)
-    max_values = tf.reduce_max(tensor, axis=0)
-    
-    scaled_tensor = (tensor - min_values) / (max_values - min_values)
-    mask = tf.equal(min_values, max_values)
-    scaled_tensor = tf.where(mask, 1.0, scaled_tensor)
-    return scaled_tensor
+# path_encoded = path_encoder()
 
-def get_Link_Path_adj(net, path_encoded):
-    link_path = tf.zeros((net.shape[0], len(path_encoded)), dtype=tf.float32)
-    for p, index in path_encoded.items():
-        for link in p:
-            link_path = link_path.write(link, link_path.read(link).scatter(tf.IndexedSlices(1.0, [index-1])))
-    return link_path.stack()
+def normalize(tensor):
+    scaler = MinMaxScaler()
+    normed = scaler.fit_transform(tensor)
+    return normed
+
+def normalizeY(tensor):
+    if not isinstance(tensor, np.ndarray):
+        tensor = np.array(tensor)
+    scaler = MinMaxScaler()
+    normed = scaler.fit_transform(np.transpose(tensor))
+    tensor = np.transpose(normed)
+    tensor = tensor[:, :-1]
+    return tensor, scaler
 
 def create_matrix(data, nodes):
     # data is an array, nodes is a set
@@ -48,143 +72,307 @@ def create_matrix(data, nodes):
         o = int(o)
         d = int(d)
         matrix[o-1][d-1] = v
+    matrix = matrix.reshape(-1, 1).astype(float) # 625x1
     return matrix
 
-def create_single_tensor(data, nodes):
-    matrix = create_matrix(data, nodes)
-    tensor = tf.convert_to_tensor([matrix], dtype=tf.float32)
-    tensor = tf.squeeze(tensor, axis=0)
-    tensor = tf.reshape(tensor, [-1]) # Flatten the matrix to a 1D tensor
-    tensor = tf.expand_dims(tensor, axis=1) # TensorShape([625, 1])
-    return tensor
-
-def get_graphTensor(network, nodes):
+def get_graphMatrix(network, nodes):
+    # 625x3
     cap = np.array(network[['init_node', 'term_node', 'capacity']].apply(lambda row: ((row['init_node'], row['term_node']), row['capacity']), axis=1).tolist(), dtype=object)
     length = np.array(network[['init_node', 'term_node', 'length']].apply(lambda row: ((row['init_node'], row['term_node']), row['length']), axis=1).tolist(), dtype=object)
     fft = np.array(network[['init_node', 'term_node', 'free_flow_time']].apply(lambda row: ((row['init_node'], row['term_node']), row['free_flow_time']), axis=1).tolist(), dtype=object)
 
-    Cap = create_single_tensor(cap, nodes)
-    Length = create_single_tensor(length, nodes)
-    Fft = create_single_tensor(fft, nodes)
-    tensor = tf.concat([tf.cast(Cap, tf.float32), tf.cast(Length, tf.float32), tf.cast(Fft, tf.float32)], axis=1)
-    return tensor
+    Cap = create_matrix(cap, nodes)
+    Length = create_matrix(length, nodes)
+    Fft = create_matrix(fft, nodes)
 
-def get_demandTensor(demand, nodes):
+    matrix = np.concatenate((Cap, Length, Fft), axis=1)
+    return matrix
+
+def get_demandMatrix(demand, nodes):
+    # 625x1
     tensor = np.array([(key, value) for key, value in demand.items()], dtype=object)
-    tensor = create_single_tensor(tensor, nodes)
+    tensor = create_matrix(tensor, nodes)
     return tensor
 
-def get_pathTensor(path_links, nodes, path_encoded):
+# Get 3 feasible paths for each OD pair, return tensor shape 625x3
+def get_pathMatrix(path_links, nodes, unique_set):
+    # 625x3
     paths = np.array([(key, [tuple(path) for path in value]) for key, value in path_links.items()], dtype=object)
     p1, p2, p3 = [], [], []
-    for od, [path1, path2, path3] in paths:
-        p1.append((od, path_encoded[path1]))
-        p2.append((od, path_encoded[path2]))
-        p3.append((od, path_encoded[path3]))
+    for od, path_list in paths:
+        path1 = path2 = path3 = 0
+        
+        if len(path_list) > 0:
+            path1 = path_list[0]
+        if len(path_list) > 1:
+            path2 = path_list[1]
+        if len(path_list) > 2:
+            path3 = path_list[2]
+        
+        p1.append((od, unique_set[path1] if path1 != 0 else 0))
+        p2.append((od, unique_set[path2] if path2 != 0 else 0))
+        p3.append((od, unique_set[path3] if path3 != 0 else 0))
+    p1 = create_matrix(p1, nodes)
+    p2 = create_matrix(p2, nodes)
+    p3 = create_matrix(p3, nodes)
+    matrix = np.concatenate((p1, p2, p3), axis=1)
+    return matrix
 
-    p1 = create_single_tensor(p1, nodes)
-    p2 = create_single_tensor(p2, nodes)
-    p3 = create_single_tensor(p3, nodes)
-    tensor = tf.concat([tf.cast(p1, tf.float32), tf.cast(p2, tf.float32), tf.cast(p3, tf.float32)], axis=1)
-    return tensor
-
-def get_flowTensor(demand, path_flows, nodes):
+# Get path flow distribution (Y), return a tensor 625x3
+def get_flowMatrix(demand, path_flows, nodes):
+    # 625x3
     flows = np.array([(k, v) for k, v in zip(demand.keys(), path_flows)], dtype=object)
     p1, p2, p3 = [], [], []
-    for od, [path1, path2, path3] in flows:
-        p1.append((od, path1))
-        p2.append((od, path2))
-        p3.append((od, path3))
-    p1 = create_single_tensor(p1, nodes)
-    p2 = create_single_tensor(p2, nodes)
-    p3 = create_single_tensor(p3, nodes)
-    tensor = tf.concat([tf.cast(p1, tf.float32), tf.cast(p2, tf.float32), tf.cast(p3, tf.float32)], axis=1)
-    return tensor
+    for od, flow in flows:
+        path1 = path2 = path3 = 0
+        if len(flow) > 0:
+            path1 = flow[0]
+        if len(flow) > 1:
+            path2 = flow[1]
+        if len(flow) > 2:
+            path3 = flow[2]
+        
+        p1.append((od, path1 if path1 != 0 else 0))
+        p2.append((od, path2 if path2 != 0 else 0))
+        p3.append((od, path3 if path3 != 0 else 0))
+    p1 = create_matrix(p1, nodes)
+    p2 = create_matrix(p2, nodes)
+    p3 = create_matrix(p3, nodes)
 
-# Try standardize to replace normalize function
-def standardize(tensor):
-    mean = tf.reduce_mean(tensor, axis=0)
-    std = tf.math.reduce_std(tensor, axis=0)
-    std = tf.where(tf.equal(std, 0), 1.0, std)
-    standardized_tensor = (tensor - mean) / std
-    return standardized_tensor
+    matrix = np.concatenate((p1, p2, p3), axis=1)
+    return matrix
 
-# Tạo mask trên raw data chưa norm, tính tổng các giá trị theo chiều cuối cùng (dim = -1) 
-#  tức tổng của 7 cột của mỗi hàng. Nếu hàng nào sum >0 thì trả về 1, sum = 0 thì trả về 0
-def create_mask(tensor):
-    mask = tf.expand_dims(tf.sign(tf.reduce_sum(tf.abs(tensor), axis=-1)),-1)
+def get_frequency(path_link):
+    a = tuple(tuple(p) for path in path_link.values() for p in path)
+    frequency_dict = {}
+    for sublist in a:
+        for value in sublist:
+            if value in frequency_dict:
+                frequency_dict[value] += 1
+            else:
+                frequency_dict[value] = 1
+    frequency_dict = dict(sorted(frequency_dict.items()))
+    return frequency_dict
+
+def map_frequence(row, frequency_dict):
+    if row in frequency_dict.keys():
+        return frequency_dict[row]
+    return 0
+
+def get_frequenceMatrix(path_link, net, nodes):
+    frequency_dict = get_frequency(path_link)
+    net['frequence'] = net['link_id'].apply(lambda x: map_frequence(x, frequency_dict))
+    frequence = np.array(net[['init_node', 'term_node', 'frequence']].apply(lambda row: ((row['init_node'], row['term_node']), row['frequence']), axis=1).tolist(), dtype=object)
+    frequence = create_matrix(frequence, nodes)
+    return frequence
+
+def create_mask(matrix):
+    tensor = tf.convert_to_tensor(matrix, dtype=tf.float32)
+    mask = tf.expand_dims(tf.sign(tf.reduce_sum(tf.abs(tensor), axis=-1)),-1) # create mask for row
     return mask
 
-def generate_xy(file_name, path_encoded):
+# Mask model
+# def generate_xy(file_name, unique_set, test_set=None):
+#     with open(file_name, "rb") as file:
+#         stat = pickle.load(file)
+#         file.close()
+
+#     path_links = stat["data"]["paths_link"]
+#     demand = stat["data"]["demand"]
+#     path_flows = stat["path_flow"]
+#     nodes = stat["data"]["nodes"]
+#     net = stat["data"]["network"]
+
+#     # Get X
+#     Graph = get_graphMatrix(net, nodes)
+#     OD_demand = get_demandMatrix(demand, nodes)
+#     Path_tensor = get_pathMatrix(path_links, nodes, unique_set)
+#     Frequence = get_frequenceMatrix(path_links, net, nodes)
+
+#     X = np.concatenate((Graph, OD_demand, Path_tensor, Frequence), axis=1)
+#     X_mask = create_mask(X) # type tensor shape 625x1
+#     X = normalize(X)
+#     X = tf.convert_to_tensor(X, dtype=tf.float32) # 625x8    
+    
+#     # Get Y
+#     Flow = get_flowMatrix(demand, path_flows, nodes)
+#     Y = np.concatenate((Flow, OD_demand), axis=1)
+#     Y_mask = create_mask(Y)
+#     Y, scaler = normalizeY(Y)
+#     Y = tf.convert_to_tensor(Y, dtype=tf.float32)   
+    
+#     if test_set:
+#         return X, Y, X_mask, Y_mask, scaler
+#     return X, Y, X_mask, Y_mask
+
+# No mask model
+def generate_xy(file_name, unique_set, test_set=None):
     with open(file_name, "rb") as file:
         stat = pickle.load(file)
-    
+        file.close()
+
     path_links = stat["data"]["paths_link"]
     demand = stat["data"]["demand"]
     path_flows = stat["path_flow"]
+    path_flows = [to_percentage_list(inner_list) for inner_list in path_flows]
     nodes = stat["data"]["nodes"]
     net = stat["data"]["network"]
 
     # Get X
-    Graph = get_graphTensor(net, nodes)
-    OD_demand = get_demandTensor(demand, nodes)
-    Path_tensor = get_pathTensor(path_links, nodes, path_encoded)
-    X = tf.concat([Graph, OD_demand, Path_tensor], axis=1)
-    X_mask = create_mask(X)
-    X = tf.concat([normalize(Graph), normalize(OD_demand), normalize(Path_tensor)], axis=1)
+    Graph = get_graphMatrix(net, nodes)
+    OD_demand = get_demandMatrix(demand, nodes)
+    Path_tensor = get_pathMatrix(path_links, nodes, unique_set)
+    Frequence = get_frequenceMatrix(path_links, net, nodes)
 
+    X = np.concatenate((Graph, OD_demand, Path_tensor, Frequence), axis=1)
+    X = normalize(X)
+    X = tf.convert_to_tensor(X, dtype=tf.float32) # 625x8    
+    
     # Get Y
-    Y = get_flowTensor(demand, path_flows, nodes)
-    Y_mask = create_mask(Y)
-    return X, Y, X_mask, Y_mask
+    Y = get_flowMatrix(demand, path_flows, nodes)
+    Y = np.concatenate((Y, OD_demand), axis=1)
+    Y, scaler = normalizeY(Y)
+    Y = tf.convert_to_tensor(Y, dtype=tf.float32)   
+    
+    if test_set:
+        return X, Y, scaler
+    return X, Y
 
-def plot_loss(train_loss, val_loss, epochs, learning_rate, train_time, N, d_model):
+def plot_loss(train_loss, val_loss, epochs):
     plt.figure(figsize=(12, 6))
+    train_loss = train_loss
+    val_loss = val_loss
     plt.plot(range(1, epochs+1), train_loss, label='Training Loss')
-    plt.plot(range(1, epochs+1), val_loss, label='Validation Loss')
+    plt.plot(range(1, epochs+1), val_loss, label='Validating Loss')
     plt.xlabel('Epoch')
     plt.ylabel('Loss')
     plt.title('Training and Validating Loss')
     plt.legend()
     plt.grid(True)
-    plt.text(0.82, 0.75,
-              f'Learning Rate: {learning_rate}\n'
-                f'Training Time: {train_time/60:.2f}m\n'
-                f'Layers number: {N}\n'
-                f'D_model: {d_model}',
-            #   horizontalalignment='center', 
-            #   verticalalignment='center', 
-              transform=plt.gca().transAxes, 
-              fontsize=10
-              )
-
     plt.show()
 
-def plot_loss_plotly(train_loss, val_loss, epochs, learning_rate, train_time):
-    fig = go.Figure()
-    # Add traces for training and validation loss
-    fig.add_trace(go.Scatter(x=list(range(1, epochs + 1)), y=train_loss, mode='lines', name='Training Loss'))
-    fig.add_trace(go.Scatter(x=list(range(1, epochs + 1)), y=val_loss, mode='lines', name='Validation Loss'))
+"""
+CHECK UE CONDITIONS OF PREDICTED OUTPUT
+"""
 
-    # Add title and labels
-    fig.update_layout(
-        title=f'Training and Validation Loss over {epochs} Epochs',
-        xaxis_title='Epoch',
-        yaxis_title='Loss',
-        legend=dict(x=0.01, y=0.99),
-        annotations=[
-            go.layout.Annotation(
-                x=0.5,
-                y=1,
-                xref='paper',
-                yref='paper',
-                showarrow=False,
-                text=f'Learning Rate: {learning_rate}<br>Training Time: {train_time / 60:.2f}m',
-                align='center',
-                bgcolor='white',
-                opacity=0.6
-            )
-        ]
+def read_file(filename):
+  with open(filename, "rb") as file:
+      stat = pickle.load(file)
+      file.close()
+  return stat
+
+def get_origin_path(stat):
+    path_link = stat['data']['paths_link']
+    od = [k for k in path_link.keys()]
+    path1 = [tuple(p[0]) if len(p) > 0 else np.nan for p in path_link.values()]
+    path2 = [tuple(p[1]) if len(p) > 1 else np.nan for p in path_link.values()]
+    path3 = [tuple(p[2]) if len(p) > 2 else np.nan for p in path_link.values()]
+
+    demand_dic = stat["data"]["demand"]
+    demand = [v for v in demand_dic.values()]
+    path_link_df = pd.DataFrame({"od": od, "demand":demand, "path1": path1, "path2": path2, "path3": path3})
+    return path_link_df
+
+def get_UE_link_cost(stat):
+    # return a dataframe of link cost, link flow
+    link = stat['data']['network'].copy()
+    link['link_flow'] = stat['link_flow']
+    # Calculate link cost
+    link['link_cost'] = round(link['free_flow_time']*\
+                            (1+link['b']*((link['link_flow']/link['capacity'])**4)), 2)
+    return link
+
+# Calculate path travel time for each od pair
+def calculate_path_cost(row, link_df):
+    if pd.isna(row): 
+        return np.nan
+    if row == 0:
+        return np.nan
+
+    sum_time = 0
+    for l in row:
+        sum_time += link_df.at[l, 'link_cost']
+    return round(sum_time, 2)
+
+# calculate each link flow based on path flow
+def extract_link_flow(path_link, flows):
+    # input: a dictionary of {od pair: path_link} and list of flow distribution
+    # return a dictionary of link flow
+    path_flow = {}
+    for path_set, flow_set in zip(path_link.values(), flows):
+        for path, flow in zip(path_set, flow_set):
+            path_flow[tuple(path)] = flow
+
+    aggregated_sums = defaultdict(float)
+    for path, flow in path_flow.items():
+        for link in path:
+            aggregated_sums[link] += flow
+    link_flow = dict(aggregated_sums)
+    return link_flow
+
+def extract_flow(pred_tensor):
+    x = int(np.sqrt(pred_tensor.shape[0]))
+    pred1 = pred_tensor[:, 0].reshape(x, x)
+    pred2 = pred_tensor[:, 1].reshape(x, x)
+    pred3 = pred_tensor[:, 2].reshape(x, x)
+
+    dict1 = {(i+1, j+1): pred1[i, j] for i in range(pred1.shape[0]) for j in range(pred1.shape[1])}
+    dict2 = {(i+1, j+1): pred2[i, j] for i in range(pred2.shape[0]) for j in range(pred2.shape[1])}
+    dict3 = {(i+1, j+1): pred3[i, j] for i in range(pred3.shape[0]) for j in range(pred3.shape[1])}
+
+    final_dict = {}
+    for key in dict1.keys():
+        final_dict[key] = [dict1[key], dict2[key], dict3[key]]
+    final_dict = {k: v for k, v in final_dict.items() if not all(val == 0 for val in v)}
+    return final_dict
+
+def create_pred_df(tensor, stat):
+    final_dict = extract_flow(tensor)  
+    flow_df = pd.DataFrame.from_dict(final_dict, orient='index', columns=['flow1', 'flow2', 'flow3']).reset_index()
+    flow_df.rename(columns={'index': 'od'}, inplace=True)
+    pred_df = get_origin_path(stat)[['od', 'demand', 'path1', 'path2', 'path3']]
+    pred_df = pd.merge(pred_df, flow_df, how='left', on='od')
+    nan_val = pred_df['flow1'].isna().sum()
+    nan_num = round(nan_val/len(stat['path_flow']),2)
+    pred_df = pred_df.fillna(0)
+    pred_df.loc[pred_df['path1'] == 0, 'flow1'] = 0
+    pred_df.loc[pred_df['path2'] == 0, 'flow2'] = 0
+    pred_df.loc[pred_df['path3'] == 0, 'flow3'] = 0
+
+    pred_df.loc[pred_df['flow1'] < 0, 'flow1'] = 0
+    pred_df.loc[pred_df['flow2'] < 0, 'flow2'] = 0
+    pred_df.loc[pred_df['flow3'] < 0, 'flow3'] = 0
+
+    pred_df['flow1'] = round(pred_df['flow1'], 0)
+    pred_df['flow2'] = round(pred_df['flow2'], 0)
+    pred_df['flow3'] = round(pred_df['flow3'], 0)
+
+    return pred_df, len(stat['path_flow']), len(final_dict), nan_num
+
+def sum_pred_link_flow(pred_df, stat):
+    pred_path_flow = pred_df[['flow1', 'flow2', 'flow3']].values.tolist()
+    path_link = stat['data']['paths_link']
+
+    pred_link_flow = extract_link_flow(path_link, pred_path_flow)
+    pred_link_flow = pd.DataFrame.from_dict(pred_link_flow, orient='index', columns=['link_flow']).sort_index(ascending=True).reset_index()
+    pred_link_flow.rename(columns={'index': 'link_id'}, inplace=True)
+    link = stat['data']['network'].copy()[['link_id', 'capacity', 'free_flow_time', 'b']]
+    output = pd.merge(link, pred_link_flow, how='left', on='link_id')
+    output = output.fillna(0)
+    output['link_cost'] = round(output['free_flow_time']*\
+                            (1+output['b']*((output['link_flow']/output['capacity'])**4)), 2)
+    return output
+
+def calculate_delay(pred_df, pred_link_flow):
+    pred_df['path1_cost'] = pred_df['path1'].apply(lambda x: calculate_path_cost(x, pred_link_flow))
+    pred_df['path2_cost'] = pred_df['path2'].apply(lambda x: calculate_path_cost(x, pred_link_flow))
+    pred_df['path3_cost'] = pred_df['path3'].apply(lambda x: calculate_path_cost(x, pred_link_flow))
+    pred_df['min_path_cost'] = pred_df[['path1_cost', 'path2_cost', 'path3_cost']].min(axis=1)
+    pred_df = pred_df.fillna(0)
+    pred_df['delay'] = (
+        pred_df['flow1'] * (pred_df['path1_cost'] - pred_df['min_path_cost']) +
+        pred_df['flow2'] * (pred_df['path2_cost'] - pred_df['min_path_cost']) +
+        pred_df['flow3'] * (pred_df['path3_cost'] - pred_df['min_path_cost'])
     )
     avg_delay = pred_df['delay'].sum()/pred_df['demand'].sum()
     #return average delay in minutes
@@ -242,6 +430,14 @@ def compare_path_flow(path_link_df, pred_df):
     path_flow['abs_err'] = (path_flow['pred_flow'] - path_flow['UE_flow']).abs()
     path_flow['sqr_err'] = path_flow['abs_err']**2
     return path_flow
+
+def calculate_indicator(flowList):
+    mse = np.mean([np.mean(flowList[x]['sqr_err']) for x in range(len(flowList))])
+    mae = np.mean([np.mean(flowList[x]['abs_err']) for x in range(len(flowList))])
+    rmse = np.sqrt(mse)
+    mape = [df['abs_err'][df['UE_flow']!=0]/ df['UE_flow'][df['UE_flow']!=0] for df in flowList]
+    mape = np.mean([j for i in mape for j in i])*100
+    return [mae, rmse, mape]
 
 def single_avg_delay(pred_tensor, filename):
     """ len_origin: number of OD pair in origin dataset
