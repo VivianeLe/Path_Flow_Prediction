@@ -2,13 +2,11 @@ import numpy as np
 import pickle
 import tensorflow as tf
 from tqdm.notebook import tqdm
-import matplotlib.pyplot as plt
 from sklearn.preprocessing import MinMaxScaler
 from sklearn.decomposition import PCA
 import pandas as pd 
 from collections import defaultdict
 import random
-import seaborn as sns
 
 def load_files_from_folders(folders, max_files):
     file_list = []
@@ -56,6 +54,11 @@ def normalize(tensor):
     normed = scaler.fit_transform(tensor)
     return normed
 
+# def normalizeY(tensor):
+#     scaler = MinMaxScaler()
+#     normed = scaler.fit_transform(tensor)
+#     return normed, scaler
+
 def normalizeY(tensor):
     if not isinstance(tensor, np.ndarray):
         tensor = np.array(tensor)
@@ -85,7 +88,7 @@ def get_graphMatrix(network, nodes):
     Length = create_matrix(length, nodes)
     Fft = create_matrix(fft, nodes)
 
-    matrix = np.concatenate((Cap, Length, Fft), axis=1)
+    matrix = np.concatenate((np.log1p(Length), np.log1p(Fft)), axis=1)
     return matrix
 
 def get_demandMatrix(demand, nodes):
@@ -171,6 +174,11 @@ def create_mask(matrix):
     mask = tf.expand_dims(tf.sign(tf.reduce_sum(tf.abs(tensor), axis=-1)),-1) # create mask for row
     return mask
 
+def to_percentage_list(lst):
+    total = sum(lst)
+    if total == 0:
+        return [0.0, 0.0, 0.0]
+    return [x / total for x in lst]
 # Mask model
 # def generate_xy(file_name, unique_set, test_set=None):
 #     with open(file_name, "rb") as file:
@@ -214,18 +222,18 @@ def generate_xy(file_name, unique_set, test_set=None):
     path_links = stat["data"]["paths_link"]
     demand = stat["data"]["demand"]
     path_flows = stat["path_flow"]
-    path_flows = [to_percentage_list(inner_list) for inner_list in path_flows]
+    # path_flows = [to_percentage_list(inner_list) for inner_list in path_flows]
     nodes = stat["data"]["nodes"]
     net = stat["data"]["network"]
 
     # Get X
-    Graph = get_graphMatrix(net, nodes)
+    Graph = get_graphMatrix(net, nodes) #return normalized data
     OD_demand = get_demandMatrix(demand, nodes)
     Path_tensor = get_pathMatrix(path_links, nodes, unique_set)
     Frequence = get_frequenceMatrix(path_links, net, nodes)
 
-    X = np.concatenate((Graph, OD_demand, Path_tensor, Frequence), axis=1)
-    X = normalize(X)
+    X = np.concatenate((Graph, normalize(OD_demand), normalize(Path_tensor)), axis=1)
+    # X = normalize(X)
     X = tf.convert_to_tensor(X, dtype=tf.float32) # 625x8    
     
     # Get Y
@@ -237,19 +245,6 @@ def generate_xy(file_name, unique_set, test_set=None):
     if test_set:
         return X, Y, scaler
     return X, Y
-
-def plot_loss(train_loss, val_loss, epochs):
-    plt.figure(figsize=(12, 6))
-    train_loss = train_loss
-    val_loss = val_loss
-    plt.plot(range(1, epochs+1), train_loss, label='Training Loss')
-    plt.plot(range(1, epochs+1), val_loss, label='Validating Loss')
-    plt.xlabel('Epoch')
-    plt.ylabel('Loss')
-    plt.title('Training and Validating Loss')
-    plt.legend()
-    plt.grid(True)
-    plt.show()
 
 """
 CHECK UE CONDITIONS OF PREDICTED OUTPUT
@@ -387,27 +382,31 @@ def mean_path_cost(stat):
     path_link_df['path3_cost'] = path_link_df['path3'].apply(lambda x: calculate_path_cost(x, UE_link))
 
     flows = stat['path_flow']
-    p1, p2, p3 = [], [], []
-    for flow in flows:
-        path1 = path2 = path3 = 0
-        if len(flow) > 0:
-            path1 = flow[0]
-        if len(flow) > 1:
-            path2 = flow[1]
-        if len(flow) > 2:
-            path3 = flow[2]
+    path_link_df['flow1'] = [f[0] if len(f)>0 else 0 for f in flows]
+    path_link_df['flow2'] = [f[1] if len(f)>1 else 0 for f in flows]
+    path_link_df['flow3'] = [f[2] if len(f)>2 else 0 for f in flows]
+    # p1, p2, p3 = [], [], []
+    # for flow in flows:
+    #     path1 = path2 = path3 = 0
+    #     if len(flow) > 0:
+    #         path1 = flow[0]
+    #     if len(flow) > 1:
+    #         path2 = flow[1]
+    #     if len(flow) > 2:
+    #         path3 = flow[2]
         
-        p1.append((path1 if path1 != 0 else 0))
-        p2.append((path2 if path2 != 0 else 0))
-        p3.append((path3 if path3 != 0 else 0))
-    path_link_df['flow1'] = p1
-    path_link_df['flow2'] = p2
-    path_link_df['flow3'] = p3
+    #     p1.append((path1 if path1 != 0 else 0))
+    #     p2.append((path2 if path2 != 0 else 0))
+    #     p3.append((path3 if path3 != 0 else 0))
+    # path_link_df['flow1'] = p1
+    # path_link_df['flow2'] = p2
+    # path_link_df['flow3'] = p3
 
     avg_path_cost = (np.mean(path_link_df['path1_cost']) + np.mean(path_link_df['path2_cost']) + np.mean(path_link_df['path3_cost']))/3
     return UE_link, path_link_df, avg_path_cost
 
 def compare_link_flow(UE_link, pred_link_flow):
+    # Calculate abs err and sqr err of link flow
     UE_link = UE_link[['link_id', 'link_flow']]
     UE_link = UE_link.rename(columns={'link_flow': 'UE_flow'})
     link_flow = pd.merge(pred_link_flow, UE_link, on='link_id', how='right')
@@ -417,12 +416,14 @@ def compare_link_flow(UE_link, pred_link_flow):
     return link_flow
 
 def get_all_path_flow(df):
+    # Transform the table of 6 columns to 2 columns
     path_df = pd.melt(df, value_vars=['path1', 'path2', 'path3'], var_name='path_type', value_name='path')
     flow_df = pd.melt(df, value_vars=['flow1', 'flow2', 'flow3'], var_name='flow_type', value_name='flow')
     result_df = pd.concat([path_df['path'], flow_df['flow']], axis=1)
     return result_df
 
 def compare_path_flow(path_link_df, pred_df):
+    # Calculate abs err and sqr err of path flow
     pred_path_flow = get_all_path_flow(pred_df)
     UE_path_flow = get_all_path_flow(path_link_df)
     path_flow = pd.merge(UE_path_flow, pred_path_flow, on='path', how='left')
@@ -439,31 +440,13 @@ def calculate_indicator(flowList):
     mape = np.mean([j for i in mape for j in i])*100
     return [mae, rmse, mape]
 
-def single_avg_delay(pred_tensor, filename):
-    """ len_origin: number of OD pair in origin dataset
-    len_pred: number of OD pair in predicted value
-    nan_num: number of nan value 
-    """
-    stat = read_file(filename)
-    pred_df, len_origin, len_pred, nan_num = create_pred_df(pred_tensor, stat)
-    pred_link_flow = sum_pred_link_flow(pred_df, stat)
-    # Avg delay of predicted flow
-    pred_df, pred_avg_delay = calculate_delay(pred_df, pred_link_flow)
-    # Avg delay of solution
-    UE_link, path_link_df, avg_path_cost = mean_path_cost(stat)
-    a, solution_avg_delay = calculate_delay(path_link_df, UE_link)
-
-    link_flow = compare_link_flow(UE_link, pred_link_flow)
-    path_flow = compare_path_flow(path_link_df, pred_df)
-    return [link_flow, path_flow],[pred_avg_delay, solution_avg_delay], [len_pred, len_origin], nan_num, avg_path_cost
-
 # def single_avg_delay(pred_tensor, filename):
-#     # This function applies for dataset where Y is encoded by percentage distribution
+#     """ len_origin: number of OD pair in origin dataset
+#     len_pred: number of OD pair in predicted value
+#     nan_num: number of nan value 
+#     """
 #     stat = read_file(filename)
 #     pred_df, len_origin, len_pred, nan_num = create_pred_df(pred_tensor, stat)
-#     pred_df['flow1'] = pred_df['flow1']*pred_df['demand']
-#     pred_df['flow2'] = pred_df['flow2']*pred_df['demand']
-#     pred_df['flow3'] = pred_df['flow3']*pred_df['demand']
 #     pred_link_flow = sum_pred_link_flow(pred_df, stat)
 #     # Avg delay of predicted flow
 #     pred_df, pred_avg_delay = calculate_delay(pred_df, pred_link_flow)
@@ -475,37 +458,20 @@ def single_avg_delay(pred_tensor, filename):
 #     path_flow = compare_path_flow(path_link_df, pred_df)
 #     return [link_flow, path_flow],[pred_avg_delay, solution_avg_delay], [len_pred, len_origin], nan_num, avg_path_cost
 
-def plot_error(Link_flow, Path_flow):
-    Link_abs = [i for df in Link_flow for i in df['abs_err']]
-    Link_sqr = [i for df in Link_flow for i in df['sqr_err']]
-    Path_abs = [i for df in Path_flow for i in df['abs_err']]
-    Path_sqr = [i for df in Path_flow for i in df['sqr_err']]
+def single_avg_delay(pred_tensor, filename):
+    # This function applies for dataset where Y is encoded by percentage distribution
+    stat = read_file(filename)
+    pred_df, len_origin, len_pred, nan_num = create_pred_df(pred_tensor, stat)
+    pred_df['flow1'] = pred_df['flow1']*pred_df['demand']
+    pred_df['flow2'] = pred_df['flow2']*pred_df['demand']
+    pred_df['flow3'] = pred_df['flow3']*pred_df['demand']
+    pred_link_flow = sum_pred_link_flow(pred_df, stat)
+    # Avg delay of predicted flow
+    pred_df, pred_avg_delay = calculate_delay(pred_df, pred_link_flow)
+    # Avg delay of solution
+    UE_link, path_link_df, avg_path_cost = mean_path_cost(stat)
+    a, solution_avg_delay = calculate_delay(path_link_df, UE_link)
 
-    plt.figure(figsize=(14, 12))
-    plt.subplot(2,2, 1)
-    sns.histplot(Link_abs, bins=100, kde=True)
-    plt.title('Histogram of absolute error of link flow')
-    plt.xlabel('Link flow absolute error')
-    plt.ylabel('Frequency')
-
-    plt.subplot(2,2, 2)
-    sns.histplot(Link_sqr, bins=100, kde=True)
-    plt.title('Histogram of square error of link flow')
-    plt.xlabel('Link flow square error')
-    plt.ylabel('Frequency')
-
-    plt.subplot(2,2, 3)
-    sns.histplot(Path_abs, bins=100, kde=True)
-    plt.ylim(0, 60000)
-    plt.title('Histogram of absolute error of path flow')
-    plt.xlabel('Path flow absolute error')
-    plt.ylabel('Frequency')
-
-    plt.subplot(2,2, 4)
-    sns.histplot(Path_sqr, bins=50, kde=True)
-    plt.ylim(0, 200000)
-    plt.title('Histogram of square error of path flow')
-    plt.xlabel('Path flow square error')
-    plt.ylabel('Frequency')
-
-    plt.show()
+    link_flow = compare_link_flow(UE_link, pred_link_flow)
+    path_flow = compare_path_flow(path_link_df, pred_df)
+    return [link_flow, path_flow],[pred_avg_delay, solution_avg_delay], [len_pred, len_origin], nan_num, avg_path_cost

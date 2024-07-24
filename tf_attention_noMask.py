@@ -184,3 +184,28 @@ class Transformer(tf.keras.Model):
         predictions = self.decoder(decoder_input, encoder_output, training=False)
         predictions = self.activation(predictions)
         return predictions
+
+import numpy as np   
+
+def inversed(normed, scaler):
+    # normed: 625x3
+    tensor = scaler.inverse_transform(np.transpose(normed))
+    tensor = np.transpose(tensor)
+    return tensor
+
+def predict_withScaler(model, test_data_loader, scalers, device):
+    model.eval()
+    predicted_values = []
+    scaler_idx = 0
+    for src, trg in test_data_loader:
+        with tf.device(device):
+            # output = model.predict(src, src_mask, tgt_mask)
+            output = model.call(src, trg)
+            for i in range(len(src)):
+                scaler = scalers[scaler_idx]
+                scaler_idx +=1
+                # pred_matrix = inversed(output[i].numpy(), scaler)
+                pred_matrix = scaler.inverse_transform(output[i].numpy())
+                predicted_values.append(pred_matrix)
+
+    return predicted_values
