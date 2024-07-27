@@ -247,7 +247,7 @@ def create_Adj(net_df, links, nodes):
     # links: number of links in the network (80, 75, 70, 65)
     # nodes: a list of all nodes (from 1 to 25)
     # Create adj matrix shape 25x80 for all scenarios
-    Adj = [ [0 for i in range(76)] for n in nodes]
+    Adj = [ [0 for i in range(80)] for n in nodes]
     for n in nodes :
         init = net_df[net_df['init_node']==n]
         for j in init['link_id'].values : 
