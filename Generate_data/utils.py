@@ -288,9 +288,8 @@ def generate_Random_OD_matrix(number_OD, OD_pairs) :
     
     return Matrix, total_demand
 
-def generate_OD_demand(num_nodes, min_demand, max_demand):
+def generate_OD_demand(num_nodes, min_demand, max_demand, num_pairs):
     od_demand = {}
-    num_pairs = 315 # 40%
     # num_pairs = int((num_nodes**2)*0.8)
     # Generate unique OD pairs
     pairs = set()
