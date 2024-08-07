@@ -64,28 +64,33 @@ def create_graph(edges):
         G.add_edge(edge[0], edge[1], capacity=edge[2])
     return G
 
-def plot_graph_with_heatmap(G, pos, ratio):
+def plot_graph_with_heatmap(G, pos):
     edge_capacities = [G[u][v]['capacity'] for u, v in G.edges]
-    norm = plt.Normalize(vmin=min(edge_capacities), vmax=max(edge_capacities))
+    min_capacity = 0
+    max_capacity = 30000
+    print("Min: ",min_capacity)
+    print("Max: ",max_capacity)
+    norm = plt.Normalize(vmin=min_capacity, vmax=max_capacity)
 
-    plt.figure(figsize=(12, 10))
-    edges = nx.draw_networkx_edges(G, pos, edge_color=edge_capacities, 
+    plt.figure(figsize=(10, 8))
+    cmap = plt.cm.RdYlGn_r
+    edges = nx.draw_networkx_edges(G, pos, edge_color=edge_capacities,
                                    width = 3, arrows=True,
-                                   edge_cmap=plt.cm.hot, 
+                                   edge_cmap=cmap,
                                    connectionstyle='arc3,rad=0.05',
-                                   edge_vmin=min(edge_capacities), 
-                                   edge_vmax=max(edge_capacities))
+                                   edge_vmin=min_capacity,
+                                   edge_vmax=max_capacity)
     nodes = nx.draw_networkx_nodes(G, pos, node_size=200, node_color='white', edgecolors='black')
     labels = nx.draw_networkx_labels(G, pos, font_color='black', font_size=8)
 
-    sm = plt.cm.ScalarMappable(cmap=plt.cm.copper, norm=norm)
+    sm = plt.cm.ScalarMappable(cmap=cmap, norm=norm)
     sm.set_array([])
-    plt.colorbar(sm, label='Link flow MAE')
-
-    # plt.title(f'Missing ratio = {ratio}%')
+    ax = plt.gca()
+    cbar = plt.colorbar(sm, ax=ax)
+    cbar.set_label('Link Capacity', fontsize=17)
     plt.show()
 
-def heatmap_link_mae(Link_flow, filename, ratio):
+def heatmap_link_mae(Link_flow, filename):
     link_abs = [{row['link_id']: row['abs_err']} for l in Link_flow for _, row in l.iterrows()]
     values_by_key = defaultdict(list)
     for d in link_abs:
@@ -97,11 +102,10 @@ def heatmap_link_mae(Link_flow, filename, ratio):
     stat = read_file(filename)
     nodes = stat['data']['network'][['link_id', 'init_node', 'term_node']]
     Link_mae_df = pd.merge(nodes, Link_mae_df, on='link_id', how='left')
-    # Link_mae_df['link_mae'][Link_mae_df['link_mae'] >12000] = Link_mae_df['link_mae']-7000
     edges = [(int(row['init_node']), int(row['term_node']), row['link_mae']) for _, row in Link_mae_df.iterrows()]
     G = create_graph(edges)
 
     pos = pd.read_csv('Generate_data/SiouxFalls/SiouxFalls_node.csv')
     pos = {row['Node']: (row['X'], row['Y']) for _, row in pos.iterrows()}
-    plot_graph_with_heatmap(G, pos, ratio)
+    plot_graph_with_heatmap(G, pos)
     return Link_mae_df
