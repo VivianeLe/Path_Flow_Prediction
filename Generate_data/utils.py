@@ -123,9 +123,6 @@ def get_origDest(OD_demand) :
 
 def k_shortest_paths(G, source, target, k):
     try : 
-    # D = nx.shortest_simple_paths(G, source, target, weight="free_flow_time")
-    # for counter, path in enumerate(D):
-    #     print(path)
         paths = list(islice(nx.shortest_simple_paths(G, source, target, weight="free_flow_time"), k))
     except : 
         paths = []
@@ -272,7 +269,7 @@ def create_delta(links, paths, od_matrix) :
         kk += 1
     return delta
 
-def generate_Random_OD_matrix(number_OD, OD_pairs) : 
+def generate_Random_OD_matrix(numuyber_OD, OD_pairs) : 
     max_dem = 300
     Matrix = {}
     total_demand = 0
