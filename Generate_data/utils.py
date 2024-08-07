@@ -247,7 +247,11 @@ def create_Adj(net_df, links, nodes):
     # links: number of links in the network (80, 75, 70, 65)
     # nodes: a list of all nodes (from 1 to 25)
     # Create adj matrix shape 25x80 for all scenarios
+<<<<<<< HEAD
     Adj = [ [0 for i in range(76)] for n in nodes]
+=======
+    Adj = [ [0 for i in range(80)] for n in nodes]
+>>>>>>> eaee718615eef5d062576779e7d52f1d64c61653
     for n in nodes :
         init = net_df[net_df['init_node']==n]
         for j in init['link_id'].values : 
@@ -279,7 +283,11 @@ def generate_Random_OD_matrix(number_OD, OD_pairs) :
     k = 0
     while k < number_OD :
         demand =  random.randint(10, max_dem)
+<<<<<<< HEAD
         od_id = random.randint(0, len(OD_pairs)-201)
+=======
+        od_id = random.randint(0, len(OD_pairs))
+>>>>>>> eaee718615eef5d062576779e7d52f1d64c61653
         o,d = OD_pairs[od_id]
         if (o,d) not in Matrix.keys() :
             Matrix[(o,d)] = demand
@@ -288,9 +296,15 @@ def generate_Random_OD_matrix(number_OD, OD_pairs) :
     
     return Matrix, total_demand
 
+<<<<<<< HEAD
 def generate_OD_demand(num_nodes, min_demand, max_demand):
     od_demand = {}
     num_pairs = random.randint(50, 200)
+=======
+def generate_OD_demand(num_nodes, min_demand, max_demand, num_pairs):
+    od_demand = {}
+    # num_pairs = int((num_nodes**2)*0.8)
+>>>>>>> eaee718615eef5d062576779e7d52f1d64c61653
     # Generate unique OD pairs
     pairs = set()
     while len(pairs) < num_pairs:
