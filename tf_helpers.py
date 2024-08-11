@@ -285,8 +285,8 @@ def calculate_path_cost(row, link_df):
         return np.nan
 
     sum_time = 0
-    for l in row:
-        sum_time += link_df.at[l, 'link_cost']
+    for link in row:
+        sum_time += link_df[link_df['link_id']==link]['link_cost'].iloc[0]
     return round(sum_time, 2)
 
 # calculate each link flow based on path flow
