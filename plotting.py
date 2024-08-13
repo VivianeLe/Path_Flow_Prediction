@@ -5,6 +5,7 @@ from statistics import mean
 import networkx as nx
 import pandas as pd
 import pickle
+import numpy as np
 
 def read_file(filename):
   with open(filename, "rb") as file:
@@ -29,32 +30,41 @@ def plot_error(Link_flow, Path_flow):
     Path_abs = [i for df in Path_flow for i in df['abs_err']]
     Path_sqr = [i for df in Path_flow for i in df['sqr_err']]
 
+    Link_abs_threshold = np.percentile(Link_abs, 95)
+    Link_sqr_threshold = np.percentile(Link_sqr, 95)
+    Path_abs_threshold = np.percentile(Path_abs, 95)
+    Path_sqr_threshold = np.percentile(Path_sqr, 95)
+
     plt.figure(figsize=(14, 12))
     plt.subplot(2,2, 1)
     sns.histplot(Link_abs, bins=100, kde=True)
-    # plt.title('Absolute error of link flow')
+    plt.axvline(Link_abs_threshold, color='r', linestyle='--', label=f'95% threshold: {Link_abs_threshold}')
     plt.xlabel('Link flow absolute error')
     plt.ylabel('Frequency')
+    plt.legend()
 
     plt.subplot(2,2, 2)
     sns.histplot(Link_sqr, bins=100, kde=True)
-    # plt.title('Histogram of square error of link flow')
+    plt.axvline(Link_sqr_threshold, color='r', linestyle='--', label=f'95% threshold: {Link_sqr_threshold}')
     plt.xlabel('Link flow square error')
     plt.ylabel('Frequency')
+    plt.legend()
 
     plt.subplot(2,2, 3)
     sns.histplot(Path_abs, bins=100, kde=True)
+    plt.axvline(Path_abs_threshold, color='r', linestyle='--', label=f'95% threshold: {Path_abs_threshold}')
     # plt.ylim(0, 60000)
-    # plt.title('Histogram of absolute error of path flow')
     plt.xlabel('Path flow absolute error')
     plt.ylabel('Frequency')
+    plt.legend()
 
     plt.subplot(2,2, 4)
     sns.histplot(Path_sqr, bins=50, kde=True)
+    plt.axvline(Path_sqr_threshold, color='r', linestyle='--', label=f'95% threshold: {Path_sqr_threshold}')
     # plt.ylim(0, 200000)
-    # plt.title('Histogram of square error of path flow')
     plt.xlabel('Path flow square error')
     plt.ylabel('Frequency')
+    plt.legend()
 
     plt.show()
 
