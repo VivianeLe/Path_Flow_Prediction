@@ -77,7 +77,7 @@ def create_graph(edges):
 def plot_graph_with_heatmap(G, pos):
     edge_capacities = [G[u][v]['capacity'] for u, v in G.edges]
     min_capacity = 0
-    max_capacity = 1400
+    max_capacity = 450
     print("Min: ",min(edge_capacities))
     print("Max: ",max(edge_capacities))
     norm = plt.Normalize(vmin=min_capacity, vmax=max_capacity)
