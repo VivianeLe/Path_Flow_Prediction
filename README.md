@@ -11,4 +11,4 @@ The best model so far:
 - Model architecture: add 1 more layerNorm layer after each skip connection, in both Encoder and Decoder.
 - Result: Path flow MAPE: 4.19%, Link flow MAPE: 2.91%
 
-The model can predict path flow at optimal state when randomly remove 2 or 3 links without retrain the model.
+The model can predict path flow at optimal state when randomly remove 2 or 3 links without retrain the model (make sure there is at least 1 path for each OD pair in the matrix).

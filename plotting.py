@@ -38,21 +38,21 @@ def plot_error(Link_flow, Path_flow):
     plt.figure(figsize=(14, 12))
     plt.subplot(2,2, 1)
     sns.histplot(Link_abs, bins=100, kde=True)
-    plt.axvline(Link_abs_threshold, color='r', linestyle='--', label=f'95% threshold: {Link_abs_threshold}')
+    plt.axvline(Link_abs_threshold, color='r', linestyle='--', label=f'95% threshold: {round(Link_abs_threshold,2)}')
     plt.xlabel('Link flow absolute error')
     plt.ylabel('Frequency')
     plt.legend()
 
     plt.subplot(2,2, 2)
     sns.histplot(Link_sqr, bins=100, kde=True)
-    plt.axvline(Link_sqr_threshold, color='r', linestyle='--', label=f'95% threshold: {Link_sqr_threshold}')
+    # plt.axvline(Link_sqr_threshold, color='r', linestyle='--', label=f'95% threshold: {round(Link_sqr_threshold,2)}')
     plt.xlabel('Link flow square error')
     plt.ylabel('Frequency')
-    plt.legend()
+    # plt.legend()
 
     plt.subplot(2,2, 3)
     sns.histplot(Path_abs, bins=100, kde=True)
-    plt.axvline(Path_abs_threshold, color='r', linestyle='--', label=f'95% threshold: {Path_abs_threshold}')
+    plt.axvline(Path_abs_threshold, color='r', linestyle='--', label=f'95% threshold: {round(Path_abs_threshold,2)}')
     # plt.ylim(0, 60000)
     plt.xlabel('Path flow absolute error')
     plt.ylabel('Frequency')
@@ -60,11 +60,11 @@ def plot_error(Link_flow, Path_flow):
 
     plt.subplot(2,2, 4)
     sns.histplot(Path_sqr, bins=50, kde=True)
-    plt.axvline(Path_sqr_threshold, color='r', linestyle='--', label=f'95% threshold: {Path_sqr_threshold}')
+    # plt.axvline(Path_sqr_threshold, color='r', linestyle='--', label=f'95% threshold: {round(Path_sqr_threshold,2)}')
     # plt.ylim(0, 200000)
     plt.xlabel('Path flow square error')
     plt.ylabel('Frequency')
-    plt.legend()
+    # plt.legend()
 
     plt.show()
 
@@ -77,9 +77,9 @@ def create_graph(edges):
 def plot_graph_with_heatmap(G, pos):
     edge_capacities = [G[u][v]['capacity'] for u, v in G.edges]
     min_capacity = 0
-    max_capacity = 30000
-    print("Min: ",min_capacity)
-    print("Max: ",max_capacity)
+    max_capacity = 1400
+    print("Min: ",min(edge_capacities))
+    print("Max: ",max(edge_capacities))
     norm = plt.Normalize(vmin=min_capacity, vmax=max_capacity)
 
     plt.figure(figsize=(10, 8))
@@ -97,7 +97,7 @@ def plot_graph_with_heatmap(G, pos):
     sm.set_array([])
     ax = plt.gca()
     cbar = plt.colorbar(sm, ax=ax)
-    cbar.set_label('Link Capacity', fontsize=17)
+    cbar.set_label('Link Flow MAE', fontsize=17)
     plt.show()
 
 def heatmap_link_mae(Link_flow, filename):
