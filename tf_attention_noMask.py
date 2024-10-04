@@ -94,7 +94,7 @@ class Transformer(tf.keras.Model):
 
     def call(self, x, y, training=None):
         encoder_output = self.encoder(x, training=training)
-        decoder_output = self.decoder(y, encoder_output, training=training)
+        decoder_output = self.decoder(y, encoder_output, training=training)l
         decoder_output = self.activation(decoder_output)
         return decoder_output
 
