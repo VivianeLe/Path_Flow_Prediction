@@ -5912,3 +5912,134 @@ Iteration    Objective       Primal Inf.    Dual Inf.      Time
 
 Solved in 1617 iterations and 3.03 seconds (2.25 work units)
 Optimal objective  3.736870000e+05
+
+Gurobi 11.0.2 (mac64[arm]) logging started Mon Oct 14 14:52:15 2024
+
+Set parameter LogFile to value "gurobi_log.txt"
+Set parameter NumericFocus to value 3
+Gurobi Optimizer version 11.0.2 build v11.0.2rc0 (mac64[arm] - Darwin 23.5.0 23F79)
+
+CPU model: Apple M1
+Thread count: 8 physical cores, 8 logical processors, using up to 8 threads
+
+Optimize a model with 162537 rows, 155754 columns and 634995 nonzeros
+Model fingerprint: 0x380fff9b
+Model has 2070 quadratic constraints
+Coefficient statistics:
+  Matrix range     [1e-10, 2e+05]
+  QMatrix range    [1e+00, 1e+00]
+  QLMatrix range   [1e+00, 1e+00]
+  Objective range  [1e+03, 1e+03]
+  Bounds range     [0e+00, 0e+00]
+  RHS range        [1e+00, 2e+03]
+Warning: Model contains large matrix coefficient range
+Presolve removed 158492 rows and 77800 columns
+
+Continuous model is non-convex -- solving as a MIP
+
+Presolve removed 157452 rows and 622 columns
+Presolve time: 0.24s
+Presolved: 9225 rows, 155133 columns, 478108 nonzeros
+Presolved model has 1035 bilinear constraint(s)
+Warning: Model contains variables with very large bounds participating
+         in product terms.
+         Presolve was not able to compute smaller bounds for these variables.
+         Consider bounding these variables or reformulating the model.
+
+Variable types: 155133 continuous, 0 integer (0 binary)
+Deterministic concurrent LP optimizer: primal and dual simplex
+Showing primal log only...
+
+
+Root simplex log...
+
+Iteration    Objective       Primal Inf.    Dual Inf.      Time
+       0    5.5100000e+05   2.596218e+04   5.574640e+11     16s
+    9466    5.1701973e+05   3.871591e+00   4.624613e+10     20s
+   18092    5.1482272e+05   0.000000e+00   8.815099e+05     25s
+Concurrent spin time: 2.28s (can be avoided by choosing Method=3)
+
+Solved with dual simplex
+
+Root simplex log...
+
+Iteration    Objective       Primal Inf.    Dual Inf.      Time
+    7683    5.1311516e+05   0.000000e+00   0.000000e+00     28s
+
+Root relaxation: objective 5.131152e+05, 7683 iterations, 12.01 seconds (7.60 work units)
+Total elapsed time = 27.72s (DegenMoves)
+
+    Nodes    |    Current Node    |     Objective Bounds      |     Work
+ Expl Unexpl |  Obj  Depth IntInf | Incumbent    BestBd   Gap | It/Node Time
+
+     0     0 513115.155    0  233          - 513115.155      -     -   27s
+     0     2 513115.155    0  233          - 513115.155      -     -   90s
+
+Explored 1 nodes (7683 simplex iterations) in 90.97 seconds (57.96 work units)
+Thread count was 8 (of 8 available processors)
+
+Solution count 0
+
+Solve interrupted
+Best objective -, best bound 5.131151552882e+05, gap -
+
+Gurobi 11.0.2 (mac64[arm]) logging started Mon Oct 14 14:54:23 2024
+
+Set parameter LogFile to value "gurobi_log.txt"
+Set parameter NumericFocus to value 3
+Gurobi Optimizer version 11.0.2 build v11.0.2rc0 (mac64[arm] - Darwin 23.5.0 23F79)
+
+CPU model: Apple M1
+Thread count: 8 physical cores, 8 logical processors, using up to 8 threads
+
+Optimize a model with 161578 rows, 155830 columns and 783890 nonzeros
+Model fingerprint: 0xab68d4b7
+Coefficient statistics:
+  Matrix range     [1e-10, 1e+20]
+  Objective range  [1e+03, 1e+03]
+  Bounds range     [0e+00, 0e+00]
+  RHS range        [1e+00, 2e+03]
+Warning: Model contains large matrix coefficient range
+Presolve removed 159790 rows and 78800 columns
+Presolve time: 0.81s
+Presolved: 1788 rows, 77030 columns, 241205 nonzeros
+
+Concurrent LP optimizer: primal simplex, dual simplex, and barrier
+Showing barrier log only...
+
+Ordering time: 0.03s
+
+Barrier statistics:
+ Dense cols : 72
+ AA' NZ     : 1.794e+04
+ Factor NZ  : 4.294e+04 (roughly 30 MB of memory)
+ Factor Ops : 1.848e+06 (less than 1 second per iteration)
+ Threads    : 6
+
+                  Objective                Residual
+Iter       Primal          Dual         Primal    Dual     Compl     Time
+   0   2.50842437e+08 -1.90898130e+07  6.01e+05 2.27e-13  9.93e+05     1s
+   1   1.11437103e+08 -2.42188474e+07  2.66e+05 4.97e+02  4.57e+05     1s
+   2   6.53047826e+07 -2.64079610e+07  1.56e+05 4.73e+02  2.71e+05     2s
+   3   6.11043939e+07 -2.73810118e+07  1.46e+05 4.52e+02  2.53e+05     2s
+   4   5.81776138e+07 -2.88182726e+07  1.39e+05 4.23e+02  2.41e+05     2s
+   5   5.23492061e+07 -3.64239263e+07  1.25e+05 3.55e+02  2.17e+05     2s
+   6   3.82695271e+07 -6.98473642e+07  9.09e+04 1.87e+02  1.59e+05     2s
+   7   2.03214338e+07 -9.42428954e+07  4.78e+04 5.28e+01  8.47e+04     2s
+   8   1.16392543e+07 -8.85587312e+07  2.70e+04 4.03e+00  4.81e+04     2s
+   9   7.45440671e+06 -7.30983356e+07  1.70e+04 9.62e-01  3.05e+04     3s
+  10   4.33239640e+06 -5.96629960e+07  9.50e+03 2.41e-01  1.72e+04     3s
+  11   3.55673373e+06 -4.79339238e+07  7.63e+03 3.43e-03  1.37e+04     3s
+  12   2.43851680e+06 -3.47352398e+07  4.95e+03 1.50e-11  9.00e+03     3s
+  13   1.64333254e+06 -2.68387415e+07  3.05e+03 1.51e-12  5.55e+03     3s
+
+Barrier performed 13 iterations in 3.32 seconds (0.62 work units)
+Barrier solve interrupted - model solved by another algorithm
+
+
+Solved with dual simplex
+Iteration    Objective       Primal Inf.    Dual Inf.      Time
+    1617    3.7368700e+05   0.000000e+00   0.000000e+00      4s
+
+Solved in 1617 iterations and 3.70 seconds (2.25 work units)
+Optimal objective  3.736870000e+05

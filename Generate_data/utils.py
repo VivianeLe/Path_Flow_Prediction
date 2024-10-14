@@ -323,11 +323,7 @@ def get_data(Network, Nodes, links, cap, fft, alpha, beta, lengths, OD_mat, path
     delta = create_delta(links, paths, OD_mat) #Adj of OD pair - path - link
     n = [ len(paths[h]) for h in OD_mat.keys() ]
     ### Linearizing variables
-<<<<<<< HEAD
     seg = 1000
-=======
-    seg = 500
->>>>>>> acd42c48ccd26245a58ecd84548be0682e0a9c5b
     Mflow = 10e4
 
     # define the segments
@@ -391,10 +387,7 @@ def BRUE(data, n, OD, Q):
     M = 1e3
     
     x = [model.addVar(vtype=GRB.CONTINUOUS) for j in range(a)] # link flow
-<<<<<<< HEAD
     x4 = [model.addVar(vtype=GRB.CONTINUOUS) for j in range(a)] # x^4
-=======
->>>>>>> acd42c48ccd26245a58ecd84548be0682e0a9c5b
     link_cost = [model.addVar(vtype=GRB.CONTINUOUS) for j in range(a)]
     f = [ [model.addVar(vtype=GRB.CONTINUOUS) for i in range(n[k])] for k in range(OD)] # path flow
     path_cost = [ [model.addVar(vtype=GRB.CONTINUOUS) for i in range(n[k])] for k in range(OD)]
@@ -414,27 +407,21 @@ def BRUE(data, n, OD, Q):
         for ss in segments:
             model.addConstr(ll[i][ss] >= 0, "integrality_ll%d%d" %(i,ss))
             model.addConstr(lr[i][ss] >= 0, "integrality_lr%d%d" %(i,ss))
-<<<<<<< HEAD
         
         model.addConstr(x4[i] == sum(eta[i][v-1]**alpha[i] * ll[i][v] + eta[i][v]**alpha[i] * lr[i][v] 
                                                      for v in segments_p))
-=======
->>>>>>> acd42c48ccd26245a58ecd84548be0682e0a9c5b
 
         model.addConstr(link_cost[i] == t0[i] * (1 + beta[i]/(cap[i]**alpha[i]) * 
                                                  sum(eta[i][v-1]**alpha[i] * ll[i][v] + eta[i][v]**alpha[i] * lr[i][v] 
                                                      for v in segments_p)),
                                                  name=f"link_cost_BPR_{i}")
 
-<<<<<<< HEAD
         # num_segments = 50
         # breakpoints = np.linspace(0, 10e4, num_segments)  # create 1000 segments from 0 to 10e4
         # values = t0[i] * (1 + beta[i] * (breakpoints / cap[i]) ** alpha[i])
         # model.addGenConstrPWL(x[i], link_cost[i], breakpoints.tolist(), values.tolist(), name=f"link_cost_BPR_PWL_{i}")
 
 
-=======
->>>>>>> acd42c48ccd26245a58ecd84548be0682e0a9c5b
     for k in range(OD) :
         model.addConstr( sum(f[k][p] for p in range(n[k])) == Q[k] , "FConservation%d" %k ) 
 
@@ -448,7 +435,6 @@ def BRUE(data, n, OD, Q):
             model.addConstr(y[k][p] <= 1)
             model.addConstr(f[k][p] <= M * y[k][p]) # if f[k][i] = 0 then y[k][i] = 0
             model.addConstr(f[k][p] >= 1e-6 * y[k][p]) # if f[k][i] > 0 then y[k][i] = 1
-<<<<<<< HEAD
             # model.addConstr(f[k][p] * (1-y[k][p]) <= f[k][p])
             # model.addConstr(f[k][p] * y[k][p] == f[k][p]) # add this one make infeasible
 
@@ -457,17 +443,6 @@ def BRUE(data, n, OD, Q):
 
             model.addConstr(path_cost[k][p] - min_path_cost[k] <= M* (1-y[k][p]) + min_path_cost[k]*0.05) #BRUE
             # model.addConstr(M * (path_cost[k][p] - min_path_cost[k]) >= 1-y[k][p])
-=======
-            model.addConstr(f[k][p] * (1-y[k][p]) <= f[k][p])
-            model.addConstr(f[k][p] * y[k][p] == f[k][p]) # add this one make infeasible
-            # model.addConstr(f[k][p] * y[k][p] == f[k][p])
-
-            model.addConstr(path_cost[k][p] == sum(link_cost[i] * sigma[k][p][i] for i in range(a)), "path-cost%d%d" %(k,p))
-            model.addConstr((min_path_cost[k] <= path_cost[k][p]), name=f"min_cost_{k}")
-
-            model.addConstr(path_cost[k][p] - min_path_cost[k] <= M* (1-y[k][p]) + min_path_cost[k]*0.05) #BRUE
-            model.addConstr(M * (path_cost[k][p] - min_path_cost[k]) >= 1-y[k][p])
->>>>>>> acd42c48ccd26245a58ecd84548be0682e0a9c5b
         
     Z = sum(M * y[k][p] for p in range(n[k]) for k in range(OD))
 
@@ -479,20 +454,12 @@ def BRUE(data, n, OD, Q):
     
     if model.Status == GRB.OPTIMAL:
         flows =  [ [ f[k][p].X  for p in range(n[k])] for k in range(OD)]
-<<<<<<< HEAD
         linkss = [ x[i].X  for i in range(a)]
         x4 = [ x4[i].X  for i in range(a)]
         min_cost = [min_path_cost[i].X for i in range(OD)]
         path_cost = [[path_cost[k][p].X for p in range(n[k])] for k in range(OD)]
         link_cost = [link_cost[i].X for i in range(a)]
         return flows, linkss, path_cost, min_cost, link_cost, x4
-=======
-        linkss = [ x[i].X   for i in range(a)]
-        min_cost = [min_path_cost[i].X for i in range(OD)]
-        path_cost = [[path_cost[k][p].X for p in range(n[k])] for k in range(OD)]
-        link_cost = [link_cost[i].X for i in range(a)]
-        return flows, linkss, path_cost, min_cost, link_cost
->>>>>>> acd42c48ccd26245a58ecd84548be0682e0a9c5b
     
     elif model.Status == GRB.INFEASIBLE:
         print(f"Model is infeasible, status {model.Status}")
@@ -648,25 +615,10 @@ def get_full_paths(demand_file, net_file, path_num):
     path_set_dict = {v: k for k, v in enumerate(path_set, start=1)}
     return path_set_dict, pair_path
 
-# def solve_UE(net_file, demand_file, pair_path, output_file, to_solve):
-#     stat = read_file(demand_file)
-#     Network, Nodes, links, cap, fft, alpha, beta, lengths = readNet(net_file)
+def solve_UE(net_file, demand_file, pair_path, output_file, to_solve):
+    stat = read_file(demand_file)
+    Network, Nodes, links, cap, fft, alpha, beta, lengths = readNet(net_file)
 
-<<<<<<< HEAD
-#     time = 0
-#     for OD_matrix in tqdm(stat[:to_solve]):
-#         print(time)
-#         paths = {k: (pair_path[k][:3] if len(pair_path[k]) >= 3 else pair_path[k]) for k in OD_matrix.keys()}
-#         data, Q, OD, O_D,n = get_data(Network, Nodes, links, cap, fft, alpha, beta, lengths, OD_matrix, paths)
-#         flows, linkss, path_cost, min_cost, link_cost = BRUE(data, n, OD, Q)
-#         dataa = {'data' : data, 'path_flow' : flows, 'link_flow' : linkss, 'path_cost': path_cost, 'min_cost': min_cost, 'link_cost': link_cost}
-#         # flows, linkss = BRUE(data, n, OD, Q)
-#         # dataa = {'data' : data, 'path_flow' : flows, 'link_flow' : linkss}
-#         file_data = open(output_file+str(time), "wb")
-#         pickle.dump(dataa , file_data)
-#         file_data.close()
-#         time +=1
-=======
     time = 0
     for OD_matrix in tqdm(stat[:to_solve]):
         print(time)
@@ -680,7 +632,6 @@ def get_full_paths(demand_file, net_file, path_num):
         pickle.dump(dataa , file_data)
         file_data.close()
         time +=1
->>>>>>> acd42c48ccd26245a58ecd84548be0682e0a9c5b
 
 # This function remove the link in the feasible path when that link is removed in the network
 def remove_links_from_path(pair_path, remove_ids):

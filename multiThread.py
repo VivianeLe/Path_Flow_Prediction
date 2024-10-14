@@ -1,6 +1,7 @@
 import threading
 import time
 from pynput import keyboard
+from functools import lru_cache
 
 class Employee():
     name = ''
@@ -13,6 +14,7 @@ class Employee():
 employees = [Employee('Van Anh'), Employee('Minh')]
 listen = keyboard.Listener
 
+@lru_cache(maxsize=None)
 def showEmployee(employee, sleepTime):
     while True:
         if employee.isStop:
