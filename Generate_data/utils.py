@@ -183,8 +183,9 @@ def generate_OD_demand(num_nodes, min_demand, max_demand, num_pairs):
     # Assign random demand values to each OD pair
     for origin, destination in pairs:
         demand_c = random.randint(min_demand, max_demand)
-        demand_t = int(demand_c/2)
-        od_demand[(origin, destination)] = [demand_c, demand_t]
+        # demand_t = int(demand_c/2)
+        # od_demand[(origin, destination)] = [demand_c, demand_t]
+        od_demand[(origin, destination)] = demand_c
     return od_demand
 
 def generate_Random_ODs(dim1, dim2, nb_entries,origins, dest,OD_pairs,file_name) : 
@@ -323,7 +324,7 @@ def get_data(Network, Nodes, links, cap, fft, alpha, beta, lengths, OD_mat, path
     delta = create_delta(links, paths, OD_mat) #Adj of OD pair - path - link
     n = [ len(paths[h]) for h in OD_mat.keys() ]
     ### Linearizing variables
-    seg = 500
+    seg = 1000
     Mflow = 10e4
 
     # define the segments
@@ -370,10 +371,10 @@ def get_data(Network, Nodes, links, cap, fft, alpha, beta, lengths, OD_mat, path
 #################### BRUE SOLVER ##########################
 def BRUE(data, n, OD, Q):
     model = gp.Model("BRUE")
-    model.setParam("OutputFlag", 1)
-    model.setParam("LogFile", "gurobi_log.txt")
+    model.setParam("OutputFlag", 0)
+    # model.setParam("LogFile", "gurobi_log.txt")
     model.setParam("NumericFocus", 3)
-    # model.setParam("Method", 2)  # Barrier method
+    model.setParam("Method", 2)  # Barrier method
 
     a = data['links']
     segments = data['approx']
@@ -384,9 +385,10 @@ def BRUE(data, n, OD, Q):
     sigma = data['delta'] # adj of od pair - path - link 
     cap = data['capacity']
     segments_p = segments.difference({0})
-    M = 1e3
+    M = 1e6
     
     x = [model.addVar(vtype=GRB.CONTINUOUS) for j in range(a)] # link flow
+    x4 = [model.addVar(vtype=GRB.CONTINUOUS) for j in range(a)] # x^4
     link_cost = [model.addVar(vtype=GRB.CONTINUOUS) for j in range(a)]
     f = [ [model.addVar(vtype=GRB.CONTINUOUS) for i in range(n[k])] for k in range(OD)] # path flow
     path_cost = [ [model.addVar(vtype=GRB.CONTINUOUS) for i in range(n[k])] for k in range(OD)]
@@ -401,16 +403,19 @@ def BRUE(data, n, OD, Q):
         model.addConstr(x[i] == sum( sum(f[k][p]*sigma[k][p][i] for p in range(n[k])) for k in range(OD)), "link-path%d" %i)
         model.addConstr(x[i] == sum(ll[i][v]*eta[i][v-1] + lr[i][v]*eta[i][v] for v in segments_p), "Approx1%d" %i)
         model.addConstr(sum(ll[i][v] + lr[i][v] for v in segments_p) == 1, "Approx2%d" %i)
-        model.addConstr(x[i] >= 0, "integrality_x%d" %i)  
+        model.addConstr(x[i] >= 1e-6, "integrality_x%d" %i)  
 
         for ss in segments:
             model.addConstr(ll[i][ss] >= 0, "integrality_ll%d%d" %(i,ss))
             model.addConstr(lr[i][ss] >= 0, "integrality_lr%d%d" %(i,ss))
+        
+        model.addGenConstrPow(x[i], x4[i], 4, name="x_to_the_power_of_4")
 
         model.addConstr(link_cost[i] == t0[i] * (1 + beta[i]/(cap[i]**alpha[i]) * 
                                                  sum(eta[i][v-1]**alpha[i] * ll[i][v] + eta[i][v]**alpha[i] * lr[i][v] 
                                                      for v in segments_p)),
                                                  name=f"link_cost_BPR_{i}")
+        # model.addConstr(link_cost[i] == t0[i] * (1 + beta[i]/(cap[i]**alpha[i]) * x4[i]), name=f"link_cost_BPR_{i}")
 
     for k in range(OD) :
         model.addConstr( sum(f[k][p] for p in range(n[k])) == Q[k] , "FConservation%d" %k ) 
@@ -425,15 +430,14 @@ def BRUE(data, n, OD, Q):
             model.addConstr(y[k][p] <= 1)
             model.addConstr(f[k][p] <= M * y[k][p]) # if f[k][i] = 0 then y[k][i] = 0
             model.addConstr(f[k][p] >= 1e-6 * y[k][p]) # if f[k][i] > 0 then y[k][i] = 1
-            model.addConstr(f[k][p] * (1-y[k][p]) <= f[k][p])
-            model.addConstr(f[k][p] * y[k][p] == f[k][p]) # add this one make infeasible
-            # model.addConstr(f[k][p] * y[k][p] == f[k][p])
 
-            model.addConstr(path_cost[k][p] == sum(link_cost[i] * sigma[k][p][i] for i in range(a)), "path-cost%d%d" %(k,p))
-            model.addConstr((min_path_cost[k] <= path_cost[k][p]), name=f"min_cost_{k}")
+            model.addConstr(path_cost[k][p] == sum(link_cost[i] * sigma[k][p][i] for i in range(a)), "path-cost%d%d" %(k,p)) # satisfied
+            model.addConstr((min_path_cost[k] <= path_cost[k][p]), name=f"min_cost_{k}") # satisfied
 
             model.addConstr(path_cost[k][p] - min_path_cost[k] <= M* (1-y[k][p]) + min_path_cost[k]*0.05) #BRUE
-            model.addConstr(M * (path_cost[k][p] - min_path_cost[k]) >= 1-y[k][p])
+            # model.addConstr(f[k][p] * (1-y[k][p]) <= f[k][p])
+            # model.addConstr(f[k][p] * y[k][p] == f[k][p]) # add this one make infeasible
+            # model.addConstr(M * (path_cost[k][p] - min_path_cost[k]) >= 1-y[k][p])
         
     Z = sum(M * y[k][p] for p in range(n[k]) for k in range(OD))
 
@@ -445,19 +449,22 @@ def BRUE(data, n, OD, Q):
     
     if model.Status == GRB.OPTIMAL:
         flows =  [ [ f[k][p].X  for p in range(n[k])] for k in range(OD)]
-        linkss = [ x[i].X   for i in range(a)]
+        linkss = [ x[i].X  for i in range(a)]
+        x4 = [ x4[i].X  for i in range(a)]
         min_cost = [min_path_cost[i].X for i in range(OD)]
         path_cost = [[path_cost[k][p].X for p in range(n[k])] for k in range(OD)]
         link_cost = [link_cost[i].X for i in range(a)]
-        return flows, linkss, path_cost, min_cost, link_cost
+        return flows, linkss, path_cost, min_cost, link_cost, x4
     
     elif model.Status == GRB.INFEASIBLE:
+        model.computeIIS()
+        model.write("model.ilp")
         print(f"Model is infeasible, status {model.Status}")
-        return None, None, None, None, None
+        return None, None, None, None, None, None
     
     else:
         print(f"Model did not solve to optimality. Status: {model.Status}")
-        return None, None, None, None, None
+        return None, None, None, None, None, None
 
 ################ SINGLE CLASS SOLVER ####################
 def TA_UE(data, n, OD, Q):
