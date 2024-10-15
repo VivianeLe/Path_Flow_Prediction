@@ -1,4 +1,3 @@
-from fcntl import F_GETLK
 import gurobipy as gp
 from gurobipy import GRB
 import pandas as pd
@@ -161,8 +160,9 @@ def generate_OD_demand(num_nodes, min_demand, max_demand, num_pairs):
     # Assign random demand values to each OD pair
     for origin, destination in pairs:
         demand_c = random.randint(min_demand, max_demand)
-        demand_t = int(demand_c/2)
-        od_demand[(origin, destination)] = [demand_c, demand_t]
+        # demand_t = int(demand_c/2)
+        # od_demand[(origin, destination)] = [demand_c, demand_t]
+        od_demand[(origin, destination)] = demand_c
     return od_demand
 
 def generate_Random_ODs(dim1, dim2, nb_entries,origins, dest,OD_pairs,file_name) : 
@@ -448,7 +448,7 @@ def get_full_paths(demand_file, net_file, path_num):
 
     path_set = set()
     pair_path = defaultdict(list)
-    for OD_matrix in tqdm(stat[:10]) :
+    for OD_matrix in tqdm(stat[:20]) :
         paths, paths_N = find_paths(Network, OD_matrix, path_num)
         path_set.add(p for path in paths.values() for p in path)
         for k, v in paths.items():
