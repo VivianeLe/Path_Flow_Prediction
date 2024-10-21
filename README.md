@@ -13,7 +13,7 @@ This research is accepted for a presentation at TRB Annual Conference 2025.
 - File utils: contains functions to read network, solve UE solution
 - File check_UE: to verify the solution solved by Gurobi, draw charts
 
-2. Solution
+2. Solution \
 Contains UE solution solved by Gurobi for:
 - Synthetic network (Random):
     - Random_30: solution of full links, missing 30% demand
@@ -25,7 +25,7 @@ Contains UE solution solved by Gurobi for:
     - Output3: solution of Single-class, missing 10% links, missing 30% demand
 - EMA: solution of full links, missing 50% demand
 
-3. Model
+3. Model \
 Contains the code of pre-processing data, transformer, and evaluating model.
 - multi: Code for multi-class network
 - single: Code for single-class network
