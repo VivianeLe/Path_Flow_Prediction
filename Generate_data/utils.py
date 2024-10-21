@@ -1,4 +1,3 @@
-from fcntl import F_GETLK
 import gurobipy as gp
 from gurobipy import GRB
 import pandas as pd
@@ -11,19 +10,6 @@ import numpy as np
 from tqdm.notebook import tqdm
 from collections import defaultdict
 import ast
-
-def generate_gridNet(dim1, dim2, file_name, draw=True, target_links=80):
-    G, pos = create_Grid_Net(dim1, dim2)
-    G = reduce_links(G, target_links)
-    i = 1
-    mapping = {}
-    for e in G.nodes:
-        mapping[e] = i
-        i = i + 1
-    convert_net_to_file(G, file_name, mapping)
-    if draw:
-        nx.draw_networkx(G, pos=pos, with_labels=True, labels=mapping, font_size=9, font_color='white')
-    return G, pos
 
 def create_Grid_Net(dim1, dim2):
     G = nx.DiGraph()
@@ -40,6 +26,20 @@ def create_Grid_Net(dim1, dim2):
                 G.add_edge((n1 + 1, n2), (n1, n2))  # bidirectional
 
     pos = {(x, y): (y, -x) for x, y in G.nodes()}  # for the drawing
+    return G, pos
+
+### GENERATE A SYNTHETIC NETWORK ####
+def generate_gridNet(dim1, dim2, file_name, draw=True, target_links=80):
+    G, pos = create_Grid_Net(dim1, dim2)
+    G = reduce_links(G, target_links)
+    i = 1
+    mapping = {}
+    for e in G.nodes:
+        mapping[e] = i
+        i = i + 1
+    convert_net_to_file(G, file_name, mapping)
+    if draw:
+        nx.draw_networkx(G, pos=pos, with_labels=True, labels=mapping, font_size=9, font_color='white')
     return G, pos
 
 def reduce_links(G, target_links):
@@ -134,6 +134,28 @@ def readNet(fileN) :
         i = i + 1
     return net, nodes, links, cap, t0, alpha, beta, lengths
 
+##### READ MULTI-CLASS NETWORK #####
+# def readNet(fileN) : 
+#     net = pd.read_csv(fileN,delimiter='\t',skiprows=8) 
+#     nodes = set(list(net['init_node'])+list(net['term_node']))
+#     links = int(net.shape[0])
+#     cap = [0 for i in range(links)]
+#     t0 = [[0 for j in range(2)] for i in range(links)]
+#     alpha = [0 for i in range(links)]
+#     beta = [0 for i in range(links)]
+#     lengths = [0 for i in range(links)]
+    
+#     for i, (capacityi,fftti,alphai,betai,leni) in enumerate(zip(net['capacity'],net['fft'],net['power'],net['b'], net['length'])):
+#         fftti = ast.literal_eval(fftti)
+#         cap[i] = capacityi
+#         for j in range(2):
+#             t0[i][j] = fftti[j]
+#         alpha[i] = alphai
+#         beta[i] = betai
+#         lengths[i] = leni
+
+#     return net, nodes, links, cap, t0, alpha, beta, lengths
+
 def k_shortest_paths(G, source, target, k):
     try : 
         paths = list(islice(nx.shortest_simple_paths(G, source, target, weight="free_flow_time"), k))
@@ -153,21 +175,6 @@ def transform_paths(network, paths) : # transform node path to edge path
         paths_OD.append(pathEdges)
     return paths_OD
 
-def generate_Random_OD_matrix(number_OD, OD_pairs) : 
-    max_dem = 300
-    Matrix = {}
-    total_demand = 0
-    k = 0
-    while k < number_OD :
-        demand =  random.randint(10, max_dem)
-        od_id = random.randint(0, len(OD_pairs))
-        o,d = OD_pairs[od_id]
-        if (o,d) not in Matrix.keys() :
-            Matrix[(o,d)] = demand
-            total_demand = total_demand + demand
-            k = k + 1
-    
-    return Matrix, total_demand
 
 def generate_OD_demand(num_nodes, min_demand, max_demand, num_pairs):
     od_demand = {}
@@ -188,71 +195,22 @@ def generate_OD_demand(num_nodes, min_demand, max_demand, num_pairs):
         od_demand[(origin, destination)] = demand_c
     return od_demand
 
-def generate_Random_ODs(dim1, dim2, nb_entries,origins, dest,OD_pairs,file_name) : 
-    
-    stats = {}
-    k = 0            
-    while k < nb_entries :   
-        number_OD = random.randint(1, len(OD_pairs)-200)
-        print("nb_entries : ",k, ". Number OD: ", number_OD)
-        
-        M, TD = generate_Random_OD_matrix(number_OD, OD_pairs)
-        
-        if number_OD not in stats.keys() :
-            stats[number_OD] = []
-            stats[number_OD].append(M)
-            k = k +1
-            file = open("../Data/{}by{}_Data{}_{}".format(dim1, dim2,k,file_name), "wb")
-            pickle.dump(M, file)
-            file.close()
-        else : 
-            if M not in stats[number_OD] :
-                stats[number_OD].append(M)
-                k = k +1
-                
-    a_file = open(file_name, "wb")
-    pickle.dump(stats, a_file)
-    a_file.close()
-      
-    return stats
+#### MULTI-CLASS DEMAND GENERATOR ####
+# def generate_OD_demand(num_nodes, min_demand, max_demand, num_pairs):
+#     od_demand = {}
+#     pairs = set()
+#     while len(pairs) < num_pairs:
+#         origin = random.randint(1, num_nodes)
+#         destination = random.randint(1, num_nodes)
+#         if origin != destination:  # Ensure origin is not equal to destination
+#             pairs.add((origin, destination))
 
-def get_fullOD_pairs(dim1, dim2) : 
-    origins = [i for i in range(1,dim1*dim2+1) if (i%dim1!=0)]
-    dest = [i for i in range(1,dim1*dim2+1) if (i%dim1!=1)]
-
-    OD_pairs = []
-    for i in origins :
-        for j in dest :
-            if (i != j) and ( (i,j) not in OD_pairs) :
-                OD_pairs.append((i,j))
-    return OD_pairs
-
-def fuse_stats(dict1, dict2) : 
-    for k,v in dict2.items() :
-        if k not in dict1.keys() :
-            dict1[k] = v
-        else :
-            for vv in v : 
-                if vv not in dict1[k] : 
-                    dict1[k].append(vv)
-    return dict1
-
-def mergeDictionary(dict_1, dict_2):
-    dict_3 = {**dict_1, **dict_2}
-    for key, value in dict_3.items():
-        if key in dict_1 and key in dict_2:
-            dict_3[key] = value + dict_1[key]
-    return dict_3
-
-def get_origDest(OD_demand) : 
-    orig = []
-    dest = []
-    for o,d in OD_demand.keys() :
-        if o not in orig :
-            orig.append(o)
-        if d not in dest :
-            dest.append(o)
-    return orig, dest
+#     # Assign random demand values to each OD pair
+#     for origin, destination in pairs:
+#         demand_c = random.randint(min_demand, max_demand)
+#         demand_t = int(demand_c/2)
+#         od_demand[(origin, destination)] = [demand_c, demand_t]
+#     return od_demand
 
 def find_paths(network, OD_Matrix,k) :
     netG = nx.from_pandas_edgelist(network,source='init_node',target='term_node',edge_attr='free_flow_time',create_using=nx.DiGraph())
@@ -317,6 +275,47 @@ def create_delta(links, paths, od_matrix) :
         kk += 1
     return delta
 
+def get_origDest(OD_demand) : 
+    orig = []
+    dest = []
+    for o,d in OD_demand.keys() :
+        if o not in orig :
+            orig.append(o)
+        if d not in dest :
+            dest.append(o)
+    return orig, dest
+
+# If you don't use a fix path set dictionary, you can use this function to find path for each time read the OD demand matrix
+# def get_data(Network, Nodes, links, cap, fft, alpha, beta, lengths, OD_mat) : 
+#     # print(Network)
+#     num_paths = 3
+#     O,D = get_origDest(OD_mat)
+#     paths, paths_N = find_paths(Network, OD_mat, num_paths)
+#     Q, OD, O_D = translate(Nodes, OD_mat)
+#     Adj = create_Adj(Network, links, Nodes)
+#     delta = create_delta(links, paths, OD_mat)
+#     n = [ len(paths[h]) for h in OD_mat.keys() ]
+#     ### Linearizing variables
+#     seg = 1000
+#     Mflow = 10e4   
+
+#     # define the segments
+#     segments = set([i for i in range(0,seg+1)])          
+#     eta = [ [ v for v in segments ] for i in range(links) ]    
+#     for i in range(links):
+#         cnt = 0
+#         step = Mflow/seg
+#         #step = cap[i]/seg
+#         for v in segments:
+#             eta[i][v] = cnt*step
+#             cnt += 1  
+#     #segments_p = segments.difference({0})    
+#     data = {'network' :Network, 'demand' :OD_mat, 'nodes':Nodes,'links':links,'orig':O,'dest':D,'fftt':fft,'capacity':cap, 'length': lengths, 'beta':beta,
+#         'approx':segments,'eta':eta,'paths_link':paths, 'paths_node':paths_N, 'delta':delta,'alpha':alpha, 'Adjacency_matrix' : Adj}
+#     return data, Q, OD, O_D,n
+
+# This function receives a fix path set dictionary for all OD demand
+# FOR SINGLE CLASS NETWORK
 def get_data(Network, Nodes, links, cap, fft, alpha, beta, lengths, OD_mat, paths) : 
     O,D = get_origDest(OD_mat)
     Q, OD, O_D = translate(Nodes, OD_mat)
@@ -342,7 +341,8 @@ def get_data(Network, Nodes, links, cap, fft, alpha, beta, lengths, OD_mat, path
         'approx':segments,'eta':eta,'paths_link':paths, 'delta':delta,'alpha':alpha, 'Adjacency_matrix' : Adj}
     return data, Q, OD, O_D,n
 
-# def get_data_N(Network, Nodes, links, cap, fft, alpha, beta, lengths, OD_mat, paths) : 
+### FOR MULTI-CLASS NETWORK###
+# def get_data(Network, Nodes, links, cap, fft, alpha, beta, lengths, OD_mat, paths) : 
 #     # print("No of links: ", links)
 #     O,D = get_origDest(OD_mat)
 #     Q, OD, O_D = translate(Nodes, OD_mat)
@@ -364,11 +364,12 @@ def get_data(Network, Nodes, links, cap, fft, alpha, beta, lengths, OD_mat, path
 #                 eta[i][v][j] = cnt*step
 #             cnt += 1  
   
-#     data = {'network' :Network, 'demand' :OD_mat, 'nodes':Nodes,'links':links,'orig':O,'dest':D,'fftt':fft, 'capacity':cap, 'length': lengths, 'beta':beta,
+#     data = {'network' :Network, 'demand' :OD_mat, 'nodes':Nodes,'links':links,'orig':O,'dest':D,'fftt_c':fft[0], 'fftt_t':fft[1], 'capacity':cap, 'length': lengths, 'beta':beta,
 #         'approx':segments,'eta':eta,'paths_link':paths, 'delta':delta,'alpha':alpha, 'Adjacency_matrix' : Adj}
 #     return data, Q, OD, O_D,n
 
 #################### BRUE SOLVER ##########################
+### This function has not run correctly yet
 def BRUE(data, n, OD, Q):
     model = gp.Model("BRUE")
     model.setParam("OutputFlag", 0)
@@ -466,7 +467,7 @@ def BRUE(data, n, OD, Q):
         print(f"Model did not solve to optimality. Status: {model.Status}")
         return None, None, None, None, None, None
 
-################ SINGLE CLASS SOLVER ####################
+################ SINGLE CLASS UE SOLVER ####################
 def TA_UE(data, n, OD, Q):
     model = gp.Model("UE")
     model.setParam("OutputFlag", 0)
@@ -630,7 +631,29 @@ def solve_UE(net_file, demand_file, pair_path, output_file, to_solve):
         file_data.close()
         time +=1
 
-# This function remove the link in the feasible path when that link is removed in the network
+def solve_BRUE(net_file, demand_file, pair_path, output_file, to_solve):
+    stat = read_file(demand_file)
+    Network, Nodes, links, cap, fft, alpha, beta, lengths = readNet(net_file)
+
+    time = 0
+    for OD_matrix in tqdm(stat[:to_solve]):
+        print(time)
+        paths = {k: (pair_path[k][:3] if len(pair_path[k]) >= 3 else pair_path[k]) for k in OD_matrix.keys()}
+        data, Q, OD, O_D,n = get_data(Network, Nodes, links, cap, fft, alpha, beta, lengths, OD_matrix, paths)
+        flows, linkss, path_cost, min_cost, link_cost, x4 = BRUE(data, n, OD, Q)
+        if flows != None:
+            dataa = {'data' : data, 'path_flow' : flows, 'link_flow' : linkss, 'path_cost': path_cost, 'min_cost': min_cost, 'link_cost': link_cost, 'x4': x4}
+            # flows, linkss = BRUE(data, n, OD, Q)
+            # dataa = {'data' : data, 'path_flow' : flows, 'link_flow' : linkss}
+            file_data = open(output_file+str(time), "wb")
+            pickle.dump(dataa , file_data)
+            file_data.close()
+            time +=1
+        else:
+            print(f"Can't solve OD matrix {time}")
+            time += 1
+
+# This function remove the link from the feasible path when that link is removed from the network
 def remove_links_from_path(pair_path, remove_ids):
     remove_ids = set(remove_ids)
     new_dict = defaultdict(list)
