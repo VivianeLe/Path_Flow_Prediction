@@ -6,22 +6,40 @@ from plotting import *
 from tensorflow.keras.optimizers import Adam  
 from tensorflow.keras.losses import MeanSquaredError
 from time import time
+import concurrent.futures
 
 # files = load_files_from_folders(FOLDERS, max_files=100)
 # path_set_dict = path_encoder(files)
 unique_set = read_file(UNIQUE_PATH_DICT)
+
+def load_data(files, unique_set):
+    dataset = Dataset(files, unique_set)
+    data_loader = dataset.to_tf_dataset(BATCH_SIZE)
+    return data_loader
+
+def predict_and_plot(model, TEST_FILES, unique_set, link_miss=2):
+    test_files = load_files_from_folders(TEST_FILES, max_files=int(DATA_SIZE*TEST_RATE))
+    test_data_loader, scalers = get_test_set(test_files, unique_set)
+
+    # PREDICTING 
+    print("Start predicting...")
+    pred_tensor = predict_withScaler(model, test_data_loader, scalers, device)
+
+    # Calculate error
+    print_result_single(pred_tensor, test_files, NODE_POSITION, f"{ERROR_TITLE} - Missing {link_miss} links")
 
 def main():
     # LOAD DATA
     files = load_files_from_folders(FOLDERS, max_files=DATA_SIZE)
     train_files, val_files, test_files = split_dataset(files, TRAIN_RATE, VAL_RATE)
 
-    train_dataset = Dataset(train_files, unique_set)
-    train_data_loader = train_dataset.to_tf_dataset(BATCH_SIZE)
-
-    val_dataset = Dataset(val_files, unique_set)
-    val_data_loader = val_dataset.to_tf_dataset(BATCH_SIZE)
-
+    with concurrent.futures.ThreadPoolExecutor() as executor:
+        future_train = executor.submit(load_data, train_files, unique_set)
+        future_val = executor.submit(load_data, val_files, unique_set)
+        
+        # Get the results
+        train_data_loader = future_train.result()
+        val_data_loader = future_val.result()
 
     # TRAIN MODEL
     model = Transformer(input_dim=input_dim, output_dim=output_dim,
@@ -37,27 +55,8 @@ def main():
     # PLOTTING LOSS
     plot_loss(train_loss, val_loss, epochs, TRAIN_HISTORY_TITLE)
 
-    # if use trained model with a network of randomly removing 2 links
-    test_files = load_files_from_folders(TEST_FILES_2, max_files=int(DATA_SIZE*0.1))
-    test_data_loader, scalers = get_test_set(test_files, unique_set)
-
-    # PREDICTING 
-    print("Start predicting...")
-    pred_tensor = predict_withScaler(model, test_data_loader, scalers, device)
-
-    # Calculate error
-    print_result_single(pred_tensor, test_files, NODE_POSITION, f"{ERROR_TITLE} - Missing 2 links")
-
-    # REMOVE 3 LINKS
-    test_files = load_files_from_folders(TEST_FILES_3, max_files=int(DATA_SIZE*0.1))
-    test_data_loader, scalers = get_test_set(test_files, unique_set)
-
-    # PREDICTING 
-    print("Start predicting...")
-    pred_tensor = predict_withScaler(model, test_data_loader, scalers, device)
-
-    # Calculate error
-    print_result_single(pred_tensor, test_files, NODE_POSITION, f"{ERROR_TITLE} - Missing 3 links")
+    predict_and_plot(model, TEST_FILES_2, unique_set, 2)
+    predict_and_plot(model, TEST_FILES_3, unique_set, 3)
 
     plt.show()
 

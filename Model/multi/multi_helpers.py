@@ -9,6 +9,7 @@ from collections import defaultdict
 import random
 import ast
 import os
+import concurrent.futures
 
 def load_files_from_folders(folder, max_files):
     files = os.listdir(folder)
@@ -198,7 +199,7 @@ def generate_xy(file_name, unique_set, test_set=None):
 CHECK UE CONDITIONS OF PREDICTED OUTPUT
 """
 
-def get_origin_path(stat, type):
+def get_origin_path(stat):
     path_link = stat['data']['paths_link']
     od = [k for k in path_link.keys()]
     path1 = [tuple(p[0]) if len(p) > 0 else np.nan for p in path_link.values()]
@@ -209,29 +210,18 @@ def get_origin_path(stat, type):
     demand = [v for v in demand_dic.values()]
     path_link_df = pd.DataFrame({"od": od, "demand":demand, "path1": path1, "path2": path2, "path3": path3})
 
-    if type=='c':
-        path_link_df['demand'] = path_link_df['demand'].apply(lambda x: x[0])
-    else: 
-        path_link_df['demand'] = path_link_df['demand'].apply(lambda x: x[1])
+    path_link_df['demand_c'] = path_link_df['demand'].apply(lambda x: x[0])
+    path_link_df['demand_t'] = path_link_df['demand'].apply(lambda x: x[1])
 
     return path_link_df
 
 def calculate_link_cost(row, type):
-    if type == 'c':
-        link_cost = round(row[0]*(1+0.15*((row[1]/row[2])**4)), 2)
-    link_cost = round(row[0]*(1+0.15*((2.5 * row[1]/row[2])**4)), 2)
-    return link_cost
-
-# Calculate path cost for each od pair
-def calculate_path_cost(row, link_df):
-    if pd.isna(row): 
+    if row.iloc[2] == 0:
         return np.nan
-    
-    sum_cost = 0
-    for link in row:
-        sum_cost += link_df[link_df['link_id']==link].iloc[:, 1].iloc[0]
-        
-    return round(sum_cost, 2)
+    elif type == 'c':
+        return round(row.iloc[0]*(1+0.15*((row.iloc[1]/row.iloc[2])**4)), 2)
+    else: 
+        return round(row.iloc[0]*(1+0.15*((2.5 * row.iloc[1]/row.iloc[2])**4)), 2)
 
 # calculate each link flow based on path flow
 def extract_link_flow(path_link, flows):
@@ -266,17 +256,10 @@ def extract_path_flow(pred_tensor):
     final_dict = {k: v for k, v in final_dict.items() if not all(val == 0 for val in v)}
     return final_dict
 
-# 1
-def create_pred_df(tensor, stat, type):
-    # return a df of predicted path flow 
-    final_dict = extract_path_flow(tensor) 
+def process_pred_df(final_dict, path_set, UE_path_flow, type):
     pred_df = pd.DataFrame.from_dict(final_dict, orient='index', columns=['flow1', 'flow2', 'flow3']).reset_index()
     pred_df.rename(columns={'index': 'od'}, inplace=True)
-    path_set = get_origin_path(stat, type)[['od', 'demand', 'path1', 'path2', 'path3']]
-
     pred_df = pd.merge(pred_df, path_set, how='right', on='od')
-    nan_val = pred_df['flow1'].isna().sum()
-    nan_num = round(nan_val/len(stat['path_flow']),2)
 
     pred_df = pred_df.fillna(0)
     pred_df.loc[pred_df['path1'] == 0, 'flow1'] = 0
@@ -287,25 +270,34 @@ def create_pred_df(tensor, stat, type):
     pred_df.loc[pred_df['flow2'] < 0, 'flow2'] = 0
     pred_df.loc[pred_df['flow3'] < 0, 'flow3'] = 0
 
-    pred_df['flow1'] = pred_df['flow1'] * pred_df['demand']
-    pred_df['flow2'] = pred_df['flow2'] * pred_df['demand']
-    pred_df['flow3'] = pred_df['flow3'] * pred_df['demand']
+    pred_df['flow1'] = pred_df['flow1'] * pred_df[f'demand_{type}']
+    pred_df['flow2'] = pred_df['flow2'] * pred_df[f'demand_{type}']
+    pred_df['flow3'] = pred_df['flow3'] * pred_df[f'demand_{type}']
 
     pred_df['flow1'] = round(pred_df['flow1'], 0)
     pred_df['flow2'] = round(pred_df['flow2'], 0)
     pred_df['flow3'] = round(pred_df['flow3'], 0)
 
+    pred_df['UE_flow1'] = [f[0] if len(f)>0 else 0 for f in UE_path_flow]
+    pred_df['UE_flow2'] = [f[1] if len(f)>1 else 0 for f in UE_path_flow]
+    pred_df['UE_flow3'] = [f[2] if len(f)>2 else 0 for f in UE_path_flow]
+    return pred_df
+
+# 1
+def create_pred_df(tensor_c, tensor_t, stat):
+    # return a df of predicted path flow and UE path flow
     flows = stat['path_flow']
-    if type=='c':
-        path_flow = [[f[i][0] for i in range(len(f))] for f in flows]
-    else: 
-        path_flow = [[f[i][1] for i in range(len(f))] for f in flows]
+    UE_path_flow_c = [[f[i][0] for i in range(len(f))] for f in flows]
+    UE_path_flow_t = [[f[i][1] for i in range(len(f))] for f in flows]
 
-    pred_df['UE_flow1'] = [f[0] if len(f)>0 else 0 for f in path_flow]
-    pred_df['UE_flow2'] = [f[1] if len(f)>1 else 0 for f in path_flow]
-    pred_df['UE_flow3'] = [f[2] if len(f)>2 else 0 for f in path_flow]
+    final_dict_c = extract_path_flow(tensor_c) 
+    final_dict_t = extract_path_flow(tensor_t)
+    path_set = get_origin_path(stat)[['od', 'demand_c', 'demand_t', 'path1', 'path2', 'path3']]
 
-    return pred_df, len(stat['path_flow']), len(final_dict), nan_num
+    pred_df_c = process_pred_df(final_dict_c, path_set, UE_path_flow_c, 'c')
+    pred_df_t = process_pred_df(final_dict_t, path_set, UE_path_flow_t, 't')
+
+    return pred_df_c, pred_df_t
 
 def compare_path_flow(pred_UE_path_flow):
     melted = pd.melt(pred_UE_path_flow,
@@ -358,8 +350,22 @@ def compare_link_flow(pred_df, stat, type):
     return output[['link_id', 'link_flow','link_cost','UE_flow','UE_link_cost','abs_err','sqr_err', 'mape']]
     # return output
 
+def calculate_path_cost(row, link_df):
+    if pd.isna(row): 
+        return np.nan
+    
+    if isinstance(row, int):
+        return np.nan
+
+    sum_cost = 0
+    for link in row:
+        sum_cost += link_df[link_df['link_id']==link].iloc[:, 1].iloc[0]
+        
+    return round(sum_cost, 2)
+
 # 3 - Avg delay of predicted/solution flow
-def get_delay(path_flow, link_flow):
+def get_delay(path_flow, link_flow, type):
+    # Calculate path cost for each od pair
     path_flow['path1_cost'] = path_flow['path1'].apply(lambda x: calculate_path_cost(x,link_flow))
     path_flow['path2_cost'] = path_flow['path2'].apply(lambda x: calculate_path_cost(x,link_flow))
     path_flow['path3_cost'] = path_flow['path3'].apply(lambda x: calculate_path_cost(x,link_flow))
@@ -370,23 +376,28 @@ def get_delay(path_flow, link_flow):
         path_flow['flow2'] * (path_flow['path2_cost'] - path_flow['min_path_cost']) +
         path_flow['flow3'] * (path_flow['path3_cost'] - path_flow['min_path_cost'])
     )
-    avg_delay = path_flow['delay'].sum()/path_flow['demand'].sum()
+
+    avg_delay = path_flow['delay'].sum()/path_flow[f'demand_{type}'].sum()
     mean_path_cost = (np.nanmean(path_flow['path1_cost']) + np.nanmean(path_flow['path2_cost']) + np.nanmean(path_flow['path3_cost']))/3
-    return path_flow, avg_delay, mean_path_cost
+    return avg_delay, mean_path_cost
 
-def single_avg_delay(pred_tensor, filename, type):
+def single_avg_delay(pred_tensor_c, pred_tensor_t, filename):
+    def get_flow_error(pred_UE_path_flow, stat, type):
+        path_flow_err = compare_path_flow(pred_UE_path_flow)
+        link_flow_err = compare_link_flow(pred_UE_path_flow, stat, type)
+
+        avg_pred_delay, pred_mean_cost = get_delay(pred_UE_path_flow, link_flow_err[['link_id', 'link_cost']], type)
+        UE_delay = pred_UE_path_flow[['od', f'demand_{type}', 'path1','path2','path3', 'UE_flow1','UE_flow2','UE_flow3']]
+        UE_delay = UE_delay.rename(columns={'UE_flow1': 'flow1', 'UE_flow2': 'flow2', 'UE_flow3': 'flow3'})
+        avg_UE_delay, UE_mean_cost = get_delay(UE_delay, link_flow_err[['link_id', 'UE_link_cost']], type)
+
+        return link_flow_err, path_flow_err, avg_pred_delay, avg_UE_delay, pred_mean_cost, UE_mean_cost
+
     stat = read_file(filename)
-    pred_UE_path_flow, len_origin, len_pred, nan_num = create_pred_df(pred_tensor, stat, type)
-    path_flow_err = compare_path_flow(pred_UE_path_flow)
-    pred_UE_link_flow = compare_link_flow(pred_UE_path_flow, stat, type)
-
-    pred_delay, avg_pred_delay, pred_mean_cost = get_delay(pred_UE_path_flow.iloc[:, :8], pred_UE_link_flow[['link_id', 'link_cost']])
-
-    UE_delay = pred_UE_path_flow[['od', 'demand', 'path1','path2','path3', 'UE_flow1','UE_flow2','UE_flow3']]
-    UE_delay = UE_delay.rename(columns={'UE_flow1': 'flow1', 'UE_flow2': 'flow2', 'UE_flow3': 'flow3'})
-    UE_delay, avg_UE_delay, UE_mean_cost = get_delay(UE_delay, pred_UE_link_flow[['link_id', 'UE_link_cost']])
-    
-    return [pred_UE_link_flow, path_flow_err],[avg_pred_delay, avg_UE_delay], [len_pred, len_origin], nan_num, [pred_mean_cost, UE_mean_cost]
+    pred_UE_path_flow_c, pred_df_t = create_pred_df(pred_tensor_c, pred_tensor_t, stat)
+    err_c = get_flow_error(pred_UE_path_flow_c, stat, 'c')
+    err_t = get_flow_error(pred_df_t, stat, 't')    
+    return err_c, err_t
 
 def calculate_indicator(flowList):
     mse = np.mean([np.mean(flowList[x]['sqr_err']) for x in range(len(flowList))])
@@ -395,27 +406,52 @@ def calculate_indicator(flowList):
     mape = np.mean([np.mean(flowList[x]['mape']) for x in range(len(flowList))])
     return [round(mae,2), round(rmse,2), round(mape,2)]
 
-def aggregate_result(pred_tensor, test_files, type):
+def single_avg_delay_wrapper(c, t, filename):
+    return single_avg_delay(c, t, filename)
+
+def aggregate_result(pred_tensor_c, pred_tensor_t, test_files):
+    def append_results(results, link_flow, path_flow, avg_delay, ue_avg_delay, pred_mean_cost, ue_mean_cost):
+        link_flow.append(results[0])
+        path_flow.append(results[1])
+        avg_delay.append(results[2])
+        ue_avg_delay.append(results[3])
+        pred_mean_cost.append(results[4])
+        ue_mean_cost.append(results[5])
+
     size = len(test_files)
-    Avg_delay, Solution_avg_delay, pred_mean_cost, UE_mean_path_cost = [], [], [], []
-    Link_flow, Path_flow = [], []
-    for i, filename in tqdm(zip(pred_tensor[:size], test_files[:size]), total=size):
-        flows, delays, lens, nan_num, avg_path_cost = single_avg_delay(i, filename, type)
+    metrics_c = {'link_flow': [], 'path_flow': [], 'avg_delay': [], 'ue_avg_delay': [], 'pred_mean_cost': [], 'ue_mean_cost': []}
+    metrics_t = {'link_flow': [], 'path_flow': [], 'avg_delay': [], 'ue_avg_delay': [], 'pred_mean_cost': [], 'ue_mean_cost': []}
 
-        Avg_delay.append(delays[0])
-        Solution_avg_delay.append(delays[1])
-        pred_mean_cost.append(avg_path_cost[0])
-        UE_mean_path_cost.append(avg_path_cost[1])
-        Link_flow.append(flows[0])
-        Path_flow.append(flows[1])
+    with concurrent.futures.ThreadPoolExecutor() as executor:
+        futures = {executor.submit(single_avg_delay_wrapper, c, t, filename): filename 
+                   for c, t, filename in zip(pred_tensor_c[:size], pred_tensor_t[:size], test_files[:size])}
+        
+        for future in tqdm(concurrent.futures.as_completed(futures), total=size):
+            err_c, err_t = future.result()
 
-    p = np.mean(Avg_delay)
-    s = np.mean(Solution_avg_delay)
+            # Append results for 'c' and 't'
+            append_results(err_c, metrics_c['link_flow'], metrics_c['path_flow'], metrics_c['avg_delay'], 
+                           metrics_c['ue_avg_delay'], metrics_c['pred_mean_cost'], metrics_c['ue_mean_cost'])
 
-    link_indicator = calculate_indicator(Link_flow)
-    path_indicator = calculate_indicator(Path_flow)
-    rows = ['MAE', 'RMSE', 'MAPE']
-    result = pd.DataFrame({'Indicator': rows,
-                        'Link flow': link_indicator,
-                        'Path flow': path_indicator})
-    return result, Link_flow, Path_flow, pred_mean_cost, UE_mean_path_cost, p, s
+            append_results(err_t, metrics_t['link_flow'], metrics_t['path_flow'], metrics_t['avg_delay'], 
+                           metrics_t['ue_avg_delay'], metrics_t['pred_mean_cost'], metrics_t['ue_mean_cost'])
+            
+    
+    def summarize_metrics(metrics):
+        avg_delay = np.mean(metrics['avg_delay'])
+        ue_avg_delay = np.mean(metrics['ue_avg_delay'])
+        link_indicator = calculate_indicator(metrics['link_flow'])
+        path_indicator = calculate_indicator(metrics['path_flow'])
+
+        rows = ['MAE', 'RMSE', 'MAPE']
+        result_df = pd.DataFrame({'Indicator': rows, 
+                                  'Link flow': link_indicator, 
+                                  'Path flow': path_indicator})
+
+        return result_df, metrics['link_flow'], metrics['path_flow'], metrics['pred_mean_cost'], metrics['ue_mean_cost'], avg_delay, ue_avg_delay
+
+    # Summarize metrics for 'c' and 't'
+    result_c = summarize_metrics(metrics_c)
+    result_t = summarize_metrics(metrics_t)
+
+    return result_c, result_t

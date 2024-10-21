@@ -1,7 +1,7 @@
 import tensorflow as tf
 from keras import layers as tfl
 from keras import regularizers, Sequential
-from tqdm.notebook import tqdm
+from tqdm import tqdm
 from tensorflow.keras.callbacks import EarlyStopping, ReduceLROnPlateau
 from tensorflow.keras.layers import Activation, BatchNormalization, LeakyReLU
 from tensorflow.keras.activations import sigmoid, linear, softmax
@@ -185,11 +185,11 @@ class Transformer(tf.keras.Model):
         predictions = self.activation(predictions)
         return predictions
 
-def inversed(normed, scaler):
-    # normed: 625x3
-    tensor = scaler.inverse_transform(np.transpose(normed))
-    tensor = np.transpose(tensor)
-    return tensor
+# def inversed(normed, scaler):
+#     # normed: 625x3
+#     tensor = scaler.inverse_transform(np.transpose(normed))
+#     tensor = np.transpose(tensor)
+#     return tensor
 
 import time
 def predict_withScaler(model, test_data_loader, scalers, device):
@@ -202,23 +202,12 @@ def predict_withScaler(model, test_data_loader, scalers, device):
             start = time.time()
             output = model.call(src, trg)
             end = time.time()
-            print("Finish predicting in: ", (end-start)/len(src), "seconds/data point")
+            print("Finish predicting in: ", round((end-start)/len(src),4), "seconds/data point")
             for i in range(len(src)):
                 scaler = scalers[scaler_idx]
                 scaler_idx +=1
                 # pred_matrix = inversed(output[i].numpy(), scaler) # reverse transform by each row
                 pred_matrix = scaler.inverse_transform(output[i].numpy()) # inverse transform by column
                 predicted_values.append(pred_matrix)
-
-    return predicted_values
-
-def predict_percentage(model, test_data_loader, device):
-    model.eval()
-    predicted_values = []
-    for src, trg in test_data_loader:
-        with tf.device(device):
-            output = model.call(src, trg)
-            for i in range(len(src)):
-                predicted_values.append(output[i].numpy())
 
     return predicted_values

@@ -122,20 +122,23 @@ def heatmap_link_mae(Link_flow, filename, pos_file, chart_title):
     pos = pd.read_csv(pos_file)
     pos = {row['Node']: (row['X'], row['Y']) for _, row in pos.iterrows()}
     plot_graph_with_heatmap(G, pos, chart_title)
-    return Link_mae_df
+    # return Link_mae_df
 
 # FOR MULTI-CLASS NETWORK
-def print_result(predicted, test_files, type, pos_file, chart_title):
-    result, Link_flow, Path_flow, pred_mean_cost, UE_mean_path_cost, p, s = aggregate_result(predicted, test_files, type)
+def print_result(pred_c, pred_t, test_files, pos_file, chart_title_c, chart_title_t):
+    # result, Link_flow, Path_flow, pred_mean_cost, UE_mean_path_cost, p, s = aggregate_result(pred_c, pred_t, test_files, type)
+    result_c, result_t = aggregate_result(pred_c, pred_t, test_files)
 
-    print(result)
-    print("Avg predicted path cost: ", round(np.mean(pred_mean_cost), 2), "mins")
-    print("Prediction average delay: ", round(p,2), "mins = ", round(p/np.mean(pred_mean_cost)*100, 2), "%")
-    print("Solution average delay: ", round(s, 2), "mins = ", round(s/np.mean(UE_mean_path_cost)*100, 2), "%")
-    print(f"Difference: {round(p-s,2)} mins")
-
-    plot_error(Link_flow, Path_flow, chart_title)
-    Link_mae_df = heatmap_link_mae(Link_flow, test_files[0], pos_file, chart_title)
+    def print_result(result, chart_title):
+        print(result[0])
+        print("Avg predicted path cost: ", round(np.mean(result[3]), 2), "mins")
+        print("Prediction average delay: ", round(result[5],2), "mins = ", round(result[5]/np.mean(result[3])*100, 2), "%")
+        print("Solution average delay: ", round(result[6], 2), "mins = ", round(result[6]/np.mean(result[4])*100, 2), "%")
+        print(f"Difference: {round(result[5] - result[6],2)} mins")
+        plot_error(result[1], result[2], chart_title)
+        heatmap_link_mae(result[1], test_files[0], pos_file, chart_title)
+    print_result(result_c, chart_title_c)
+    print_result(result_t, chart_title_t)
 
 # FOR SINGLE CLASS NETWORK
 def print_result_single(pred_tensor, test_files, pos_file, chart_title):
@@ -148,4 +151,4 @@ def print_result_single(pred_tensor, test_files, pos_file, chart_title):
     print(f"Difference: {round(p-s,4)} mins")
 
     plot_error(Link_flow, Path_flow, chart_title)
-    Link_mae_df = heatmap_link_mae(Link_flow, test_files[0], pos_file, chart_title)
+    heatmap_link_mae(Link_flow, test_files[0], pos_file, chart_title)
