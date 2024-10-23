@@ -1,6 +1,17 @@
 This code repository is a part of my Master internship research, which developes a machine learning model (Transformer) to learn and predict path flow distribution at optimal (User equilibrium) state. 
 This research is accepted for a presentation at TRB Annual Conference 2025.
 
+If you use this code for your research, please cite it:
+_V.A. Le, M. Ameli, and A. Skabardonis. A machine learning approach for network equilibrium estima-
+tion. In TRB 2025, Transportation Research Board 104th Annual Meeting, January 2025._
+@inproceedings{Le2025,
+  author    = {Le, V.A. and Ameli, M. and Skabardonis, A.},
+  title     = {A Machine Learning Approach for Network Equilibrium Estimation},
+  booktitle = {TRB 2025, Transportation Research Board 104th Annual Meeting},
+  month     = {January},
+  year      = {2025}
+}
+
 # A MACHINE LEARNING APPROACH FOR NETWORK EQUILIBRIUM ESTIMATION
 
 ## FOLDERS DESCRIPTION & HOW TO USE:
