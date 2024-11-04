@@ -3,15 +3,18 @@ This research is accepted for a presentation at TRB Annual Conference 2025.
 
 If you use this code for your research, please cite it:
 _V.A. Le, M. Ameli, and A. Skabardonis. A machine learning approach for network equilibrium estima-
-tion. In TRB 2025, Transportation Research Board 104th Annual Meeting, January 2025._
+tion. The 104th Transportation Research Board Annual Meeting (TRB 2025), Jan 2025, Washington D. C., United States._
 
-@inproceedings{Le2025, \
-  author    = {Le, V.A. and Ameli, M. and Skabardonis, A.},\
-  title     = {A Machine Learning Approach for Network Equilibrium Estimation},\
-  booktitle = {TRB 2025, Transportation Research Board 104th Annual Meeting},\
-  month     = {January},\
-  year      = {2025}\
-}
+@inproceedings{le:hal-04750911, \
+TITLE = {{A Machine Learning Approach for Network Equilibrium Estimation}}, \
+AUTHOR = {Le, Van Anh and Ameli, Mostafa and Skabardonis, Alexander}, \
+URL = {https://hal.science/hal-04750911}, \
+BOOKTITLE = {{The 104th Transportation Research Board Annual Meeting (TRB 2025)}}, \
+ADDRESS = {Washington D. C., United States}, \
+YEAR = {2025}, \
+MONTH = Jan, \
+HAL_ID = {hal-04750911}, \
+HAL_VERSION = {v1}, }
 
 # A MACHINE LEARNING APPROACH FOR NETWORK EQUILIBRIUM ESTIMATION
 
