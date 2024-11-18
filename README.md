@@ -51,10 +51,7 @@ Contains the code of pre-processing data, transformer, and evaluating model.
 Step-by-step guide on how to install and set up your project.
 1. Installation:
 - Make sure you have at least 43GB of empty disk to store this project.
-- Install Cuda 12.3
-- Install CuNN 8.9.7
-- Install Anaconda 3
-- Create virtual environment and install tensorflow:
+- Create virtual environment in Conda and install tensorflow:
 Open Anaconda Powershell Prompt, run:
     ```
     conda create --name gpu_env python=3.9
