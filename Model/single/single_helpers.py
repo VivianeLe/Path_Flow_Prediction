@@ -90,12 +90,12 @@ def get_graphMatrix(network, nodes):
     length = np.array(network[['init_node', 'term_node', 'length']].apply(lambda row: ((row['init_node'], row['term_node']), row['length']), axis=1).tolist(), dtype=object)
     fft = np.array(network[['init_node', 'term_node', 'free_flow_time']].apply(lambda row: ((row['init_node'], row['term_node']), row['free_flow_time']), axis=1).tolist(), dtype=object)
 
-    # Cap = create_matrix(cap, nodes)
+    Cap = create_matrix(cap, nodes)
     Length = create_matrix(length, nodes)
     Fft = create_matrix(fft, nodes)
 
-    # matrix = np.concatenate((normalize(Cap), np.log1p(Length), np.log1p(Fft)), axis=1)
-    matrix = np.concatenate((np.log1p(Length), np.log1p(Fft)), axis=1)
+    matrix = np.concatenate((normalize(Cap), np.log1p(Length), np.log1p(Fft)), axis=1)
+    # matrix = np.concatenate((np.log1p(Length), np.log1p(Fft)), axis=1)
     return matrix
 
 def get_demandMatrix(demand, nodes):
