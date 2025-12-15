@@ -89,18 +89,18 @@ def create_matrix(data, nodes):
 
 def get_graphMatrix(network, nodes):
     # 625x4
-    # cap = np.array(network[['init_node', 'term_node', 'capacity']].apply(lambda row: ((row['init_node'], row['term_node']), row['capacity']), axis=1).tolist(), dtype=object)
+    cap = np.array(network[['init_node', 'term_node', 'capacity']].apply(lambda row: ((row['init_node'], row['term_node']), row['capacity']), axis=1).tolist(), dtype=object)
     length = np.array(network[['init_node', 'term_node', 'length']].apply(lambda row: ((row['init_node'], row['term_node']), row['length']), axis=1).tolist(), dtype=object)
     fft_c = np.array(network[['init_node', 'term_node', 'free_flow_time']].apply(lambda row: ((row['init_node'], row['term_node']), row['free_flow_time']), axis=1).tolist(), dtype=object)
     fft_t = np.array(network[['init_node', 'term_node', 'fft_t']].apply(lambda row: ((row['init_node'], row['term_node']), row['fft_t']), axis=1).tolist(), dtype=object)
 
-    # Cap = create_matrix(cap, nodes)
+    Cap = create_matrix(cap, nodes)
     Length = create_matrix(length, nodes)
     Fft_c = create_matrix(fft_c, nodes)
     Fft_t = create_matrix(fft_t, nodes)
 
-    # matrix = np.concatenate((normalize(Cap), np.log1p(Length), np.log1p(Fft_c), np.log1p(Fft_t)), axis=1)
-    matrix = np.concatenate((np.log1p(Length), np.log1p(Fft_c), np.log1p(Fft_t)), axis=1)
+    matrix = np.concatenate((normalize(Cap), np.log1p(Length), np.log1p(Fft_c), np.log1p(Fft_t)), axis=1)
+    # matrix = np.concatenate((np.log1p(Length), np.log1p(Fft_c), np.log1p(Fft_t)), axis=1)
     return matrix
 
 def get_demandMatrix(demand, nodes):
