@@ -17,7 +17,7 @@ BATCH_SIZE = 64
 
 # TRAINING 
 device = 'gpu'
-input_dim = 6
+input_dim = 7
 output_dim = 3
 d_model = 128
 heads = 8
